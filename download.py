@@ -1,8 +1,10 @@
 import argparse
 import codecs
 import json
+import logging
 import re
 import ssl
+import urllib.error
 import urllib.request
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -55,6 +57,23 @@ def extract_clean_text(element) -> str:
 
     return "\n".join(lines)
 
+
+def find_content_cell(soup):
+    cells = soup.find_all("td", attrs={"width": "600"})
+
+    if not cells:
+        return None
+
+    return max(
+        cells,
+        key=lambda element: (
+            len(element.find_all("hr")),
+            len(element.find_all(["h2", "h6"])),
+            len(element.get_text(strip=True)),
+        ),
+    )
+
+
 def download(url: str, *, insecure: bool = False) -> tuple[bytes, str]:
     request = urllib.request.Request(
         url,
@@ -76,7 +95,7 @@ def split_and_save(content: bytes, content_type: str, output_dir: Path, source_u
     html = content.decode(encoding, errors="replace")
 
     soup = BeautifulSoup(html, "html.parser")
-    content_cell = soup.find("td", attrs={"width": "600"}, valign="top")
+    content_cell = find_content_cell(soup)
 
     if content_cell is None:
         raise ValueError("Nem található a leveleket tartalmazó HTML-elem.")
@@ -179,6 +198,16 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    args.output.mkdir(parents=True, exist_ok=True)
+    error_log_path = args.output / "errors.log"
+    logging.basicConfig(
+        filename=error_log_path,
+        filemode="a",
+        encoding="utf-8",
+        level=logging.ERROR,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+    )
+
     if args.page_range is None:
         page_ids: list[int | None] = [None]
     elif len(args.page_range) == 1:
@@ -193,20 +222,47 @@ def main() -> None:
     if any(page_id is not None and page_id < 1 for page_id in page_ids):
         parser.error("Az oldalazonosítónak pozitív számnak kell lennie.")
 
+    separator = "=" * 72
+    successful_pages = 0
+    failed_pages = 0
+
     for page_id in page_ids:
         page_name = "levelek" if page_id is None else f"levelek{page_id}"
+        page_label = "alapoldal" if page_id is None else str(page_id)
         url = f"{BASE_URL}/{page_name}.htm"
         output_dir = args.output / page_name
 
+        print(f"\n{separator}\n")
+        print(f"OLDAL ID: {page_label}")
         print(f"Levelek letöltése innen: {url}")
-        content, content_type = download(url, insecure=args.insecure)
-        block_count = split_and_save(content, content_type, output_dir, url, save_blocks=args.save_blocks)
 
+        try:
+            content, content_type = download(url, insecure=args.insecure)
+            block_count = split_and_save(content, content_type, output_dir, url, save_blocks=args.save_blocks)
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as error:
+            failed_pages += 1
+            logging.exception("Sikertelen feldolgozás | oldal=%s | url=%s", page_label, url)
+            print(f"[HIBA] A(z) {page_label} azonosítójú oldal feldolgozása sikertelen.")
+            print(f"Ok: {type(error).__name__}: {error}")
+            print(f"Részletes napló: {error_log_path}")
+            print("Folytatás a következő oldallal...")
+            continue
+
+        successful_pages += 1
+        print("[OK] Az oldal feldolgozása sikeres.")
         print(f"Nyers HTML: {output_dir / 'raw.html'}")
         print(f"JSON: {output_dir / 'blocks.json'}")
         print(f"Feldolgozott blokkok: {block_count} db")
         if args.save_blocks:
             print(f"HTML-blokkok: {output_dir / 'blocks'}")
+
+    print(f"\n{separator}")
+    print("ÖSSZESÍTÉS")
+    print(separator)
+    print(f"Sikeres oldalak: {successful_pages}")
+    print(f"Sikertelen oldalak: {failed_pages}")
+    if failed_pages:
+        print(f"Hibanapló: {error_log_path}")
 
 
 if __name__ == "__main__":

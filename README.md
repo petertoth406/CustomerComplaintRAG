@@ -18,6 +18,8 @@ python download.py --range 34 36 --output "output" --insecure
 python download.py --range 35 --save-blocks --insecure
 ```
 
+Hibák: `output/errors.log`; hibás oldal után a feldolgozás folytatódik.
+
 
 
 # TODO: Telepítő scriptet csinálni, később docker intéz mindent
