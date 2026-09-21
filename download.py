@@ -7,6 +7,7 @@ import ssl
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
 
@@ -131,7 +132,21 @@ def split_and_save(content: bytes, content_type: str, output_dir: Path, source_u
             if not element_text:
                 continue
 
-            if element.name == "h2" and element.find("a") and "válasza" in element_text.casefold():
+            answer_link = next(
+                (
+                    anchor for anchor in element.find_all("a", href=True)
+                    if "válasza" in anchor.get_text(" ", strip=True).casefold()
+                ),
+                None,
+            )
+            if element.name == "h2" and answer_link is not None:
+                messages.append(
+                    {
+                        "type": "answer_reference",
+                        "text": answer_link.get_text(" ", strip=True),
+                        "url": urljoin(source_url, answer_link["href"]),
+                    }
+                )
                 continue
 
             message_type = "answer" if element.name == "h6" else "complaint"
@@ -146,7 +161,9 @@ def split_and_save(content: bytes, content_type: str, output_dir: Path, source_u
                     }
                 )
 
-        clean_text = "\n\n".join(message["text"] for message in messages)
+        clean_text = "\n\n".join(
+            message["text"] for message in messages if message["type"] != "answer_reference"
+        )
 
         blocks_data.append(
             {
@@ -204,7 +221,7 @@ def main() -> None:
         filename=error_log_path,
         filemode="a",
         encoding="utf-8",
-        level=logging.ERROR,
+        level=logging.WARNING,
         format="%(asctime)s | %(levelname)s | %(message)s",
     )
 
