@@ -1,0 +1,86 @@
+name: customer-complaint-rag
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${APP_PORT:-8000}:8000"
+    environment:
+      OUTPUT_DIR: /app/output
+      SOURCE_INSECURE: "${SOURCE_INSECURE:-false}"
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_EMBEDDING_MODEL: "${OLLAMA_EMBEDDING_MODEL:-qwen3-embedding:0.6b}"
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: "8000"
+      CHROMA_COLLECTION: "${CHROMA_COLLECTION:-customer_complaints}"
+    volumes:
+      - ./output:/app/output
+    depends_on:
+      ollama-model-pull:
+        condition: service_completed_successfully
+      chromadb:
+        condition: service_started
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:0.34.1
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+    environment:
+      OLLAMA_ORIGINS: "http://localhost:8090,http://127.0.0.1:8090"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  ollama-model-pull:
+    image: ollama/ollama:0.34.1
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_EMBEDDING_MODEL: "${OLLAMA_EMBEDDING_MODEL:-qwen3-embedding:0.6b}"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'ollama pull "$${OLLAMA_EMBEDDING_MODEL}"'
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+
+  chromadb:
+    image: chromadb/chroma:1.5.9
+    ports:
+      - "127.0.0.1:${CHROMA_EXPOSED_PORT:-8001}:8000"
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+      CONFIG_PATH: /config.yaml
+    volumes:
+      - chroma_data:/data
+      - ./docker/chroma-config.yaml:/config.yaml:ro
+    restart: unless-stopped
+
+  chromadb-ui:
+    build:
+      context: .
+      dockerfile: docker/chromadb-ui.Dockerfile
+      args:
+        CHROMADB_UI_COMMIT: 1b0b0de7014c9e28d60da2c81fdc2d88bb515bf5
+    ports:
+      - "127.0.0.1:8090:80"
+    depends_on:
+      chromadb:
+        condition: service_started
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  chroma_data:

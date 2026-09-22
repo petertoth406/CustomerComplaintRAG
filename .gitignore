@@ -3,6 +3,7 @@ config
 .venv
 __pycache__/
 *.pyc
+.env
 
 .vscode/*
 #!.vscode/launch.json

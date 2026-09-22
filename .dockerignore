@@ -1,0 +1,11 @@
+.git
+.gitignore
+.venv
+.vscode
+.env
+__pycache__
+*.py[cod]
+output
+postman
+test_*.py
+*.log
