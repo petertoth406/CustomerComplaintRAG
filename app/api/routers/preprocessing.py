@@ -1,14 +1,124 @@
-"""Controller for the future download and preprocessing workflow."""
+"""HTTP controller for download, processing, and future embedding."""
 
-from fastapi import APIRouter, HTTPException, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.clients.source_client import SourceDownloadError
+from app.schemas.preprocessing import (
+    DownloadRequest,
+    DownloadResponse,
+    DownloadResult,
+    PageRequest,
+    ProcessRequest,
+    ProcessResponse,
+    ProcessResult,
+    RunRequest,
+    RunResponse,
+    RunResult,
+)
+from app.services.preprocessing_service import PreprocessingService
 
 
 router = APIRouter(prefix="/preprocessing", tags=["preprocessing"])
 
 
-@router.post("", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-def start_preprocessing() -> None:
+def get_service() -> PreprocessingService:
+    return PreprocessingService()
+
+
+Service = Annotated[PreprocessingService, Depends(get_service)]
+
+
+@router.post("/download", response_model=DownloadResponse)
+def download_pages(request: DownloadRequest, service: Service) -> DownloadResponse:
+    timestamp = service.create_timestamp() if request.timestamp else None
+    results: list[DownloadResult] = []
+    try:
+        for page in request.source_pages():
+            output_name = page.output_name(timestamp)
+            service.download(page, output_name=output_name)
+            results.append(
+                DownloadResult(
+                    page=page.name,
+                    output_directory=f"output/{output_name}",
+                    source_url=page.url,
+                    raw_html=f"output/{output_name}/raw.html",
+                )
+            )
+    except SourceDownloadError as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"A forrásoldal nem tölthető le: {error}",
+        ) from error
+    return DownloadResponse(timestamp=timestamp, results=results)
+
+
+@router.post("/process", response_model=ProcessResponse)
+def process_pages(request: ProcessRequest, service: Service) -> ProcessResponse:
+    results: list[ProcessResult] = []
+    try:
+        for page in request.source_pages():
+            block_count = service.process(page, save_blocks=request.save_blocks)
+            results.append(
+                ProcessResult(
+                    page=page.name,
+                    output_directory=f"output/{page.name}",
+                    block_count=block_count,
+                    blocks_json=f"output/{page.name}/blocks.json",
+                )
+            )
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"A mentett HTML-fájl nem található: {page.name}",
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+    return ProcessResponse(results=results)
+
+
+@router.post("/run", response_model=RunResponse)
+def run_pipeline(request: RunRequest, service: Service) -> RunResponse:
+    timestamp = service.create_timestamp() if request.timestamp else None
+    results: list[RunResult] = []
+    try:
+        for page in request.source_pages():
+            output_name = page.output_name(timestamp)
+            block_count = service.run(
+                page,
+                output_name=output_name,
+                save_blocks=request.save_blocks,
+            )
+            results.append(
+                RunResult(
+                    page=page.name,
+                    output_directory=f"output/{output_name}",
+                    source_url=page.url,
+                    raw_html=f"output/{output_name}/raw.html",
+                    block_count=block_count,
+                    blocks_json=f"output/{output_name}/blocks.json",
+                )
+            )
+    except SourceDownloadError as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"A forrásoldal nem tölthető le: {error}",
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+    return RunResponse(timestamp=timestamp, results=results)
+
+
+@router.post("/embeddings", status_code=status.HTTP_501_NOT_IMPLEMENTED)
+def create_embeddings(request: PageRequest) -> None:
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="A letöltés és előfeldolgozás még nincs bekötve.",
+        detail="Az embedding készítése még nincs megvalósítva.",
     )
