@@ -1,21 +1,18 @@
 # Futtatás
 
 ```powershell
-python download.py --insecure
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
-- `--range 35`: egy oldal
-- `--range 34 36`: oldaltartomány
-- `--output`: kimeneti gyökérmappa
-- `--insecure`: TLS-ellenőrzés kikapcsolása
-- `--save-blocks`: HTML-blokkok mentése
 
-Példák:
 
+
+# TODO: Telepítő scriptet csinálni, később docker intéz mindent
+
+BeautifoulSoup telepítése
 ```powershell
-python download.py --range 35 --insecure
-python download.py --range 34 36 --output "output" --insecure
-python download.py --range 35 --save-blocks --insecure
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install beautifulsoup4
 ```
 
 Hibák: `output/errors.log`; hibás oldal után a feldolgozás folytatódik.

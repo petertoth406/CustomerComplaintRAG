@@ -3,3 +3,9 @@ config
 .venv
 __pycache__/
 *.pyc
+
+.vscode/*
+#!.vscode/launch.json
+#!.vscode/tasks.json
+#!.vscode/settings.json
+#!.vscode/extensions.json
