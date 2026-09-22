@@ -13,8 +13,16 @@ class FileRepository:
     def __init__(self, output_dir: Path = OUTPUT_DIR) -> None:
         self.output_dir = output_dir
 
-    def save_raw(self, page: SourcePage, downloaded: DownloadedPage, *, output_name: str | None = None) -> Path:
-        page_dir = self.output_dir / (output_name or page.name)
+    def page_dir(self, page: SourcePage, *, timestamp: str | None = None) -> Path:
+        output_dir = (
+            self.output_dir
+            if timestamp is None
+            else self.output_dir.with_name(f"{self.output_dir.name}_{timestamp}")
+        )
+        return output_dir / page.name
+
+    def save_raw(self, page: SourcePage, downloaded: DownloadedPage, *, timestamp: str | None = None) -> Path:
+        page_dir = self.page_dir(page, timestamp=timestamp)
         page_dir.mkdir(parents=True, exist_ok=True)
         raw_path = page_dir / "raw.html"
         raw_path.write_bytes(downloaded.content)
@@ -28,8 +36,8 @@ class FileRepository:
         )
         return raw_path
 
-    def load_raw(self, page: SourcePage, *, output_name: str | None = None) -> DownloadedPage:
-        page_dir = self.output_dir / (output_name or page.name)
+    def load_raw(self, page: SourcePage, *, timestamp: str | None = None) -> DownloadedPage:
+        page_dir = self.page_dir(page, timestamp=timestamp)
         content = (page_dir / "raw.html").read_bytes()
         metadata_path = page_dir / "source.json"
         content_type = ""
@@ -38,8 +46,8 @@ class FileRepository:
             content_type = metadata.get("content_type", "")
         return DownloadedPage(content=content, content_type=content_type)
 
-    def save_processed(self, page: SourcePage, parsed: ParsedPage, *, output_name: str | None = None, save_blocks: bool = False) -> Path:
-        page_dir = self.output_dir / (output_name or page.name)
+    def save_processed(self, page: SourcePage, parsed: ParsedPage, *, timestamp: str | None = None, save_blocks: bool = False) -> Path:
+        page_dir = self.page_dir(page, timestamp=timestamp)
         page_dir.mkdir(parents=True, exist_ok=True)
         json_path = page_dir / "blocks.json"
         json_path.write_text(

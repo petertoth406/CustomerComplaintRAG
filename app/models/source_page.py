@@ -17,10 +17,6 @@ class SourcePage:
     def url(self) -> str:
         return f"{BASE_URL}/{self.name}.htm"
 
-    def output_name(self, timestamp: str | None = None) -> str:
-        return self.name if timestamp is None else f"{self.name}_{timestamp}"
-
-
 @dataclass(frozen=True)
 class DownloadedPage:
     content: bytes

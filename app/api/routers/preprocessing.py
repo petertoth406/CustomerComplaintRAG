@@ -33,17 +33,17 @@ Service = Annotated[PreprocessingService, Depends(get_service)]
 @router.post("/download", response_model=DownloadResponse)
 def download_pages(request: DownloadRequest, service: Service) -> DownloadResponse:
     timestamp = service.create_timestamp() if request.timestamp else None
+    output_root = f"output_{timestamp}" if timestamp else "output"
     results: list[DownloadResult] = []
     try:
         for page in request.source_pages():
-            output_name = page.output_name(timestamp)
-            service.download(page, output_name=output_name)
+            service.download(page, timestamp=timestamp)
             results.append(
                 DownloadResult(
                     page=page.name,
-                    output_directory=f"output/{output_name}",
+                    output_directory=f"{output_root}/{page.name}",
                     source_url=page.url,
-                    raw_html=f"output/{output_name}/raw.html",
+                    raw_html=f"{output_root}/{page.name}/raw.html",
                 )
             )
     except SourceDownloadError as error:
@@ -84,23 +84,23 @@ def process_pages(request: ProcessRequest, service: Service) -> ProcessResponse:
 @router.post("/run", response_model=RunResponse)
 def run_pipeline(request: RunRequest, service: Service) -> RunResponse:
     timestamp = service.create_timestamp() if request.timestamp else None
+    output_root = f"output_{timestamp}" if timestamp else "output"
     results: list[RunResult] = []
     try:
         for page in request.source_pages():
-            output_name = page.output_name(timestamp)
             block_count = service.run(
                 page,
-                output_name=output_name,
+                timestamp=timestamp,
                 save_blocks=request.save_blocks,
             )
             results.append(
                 RunResult(
                     page=page.name,
-                    output_directory=f"output/{output_name}",
+                    output_directory=f"{output_root}/{page.name}",
                     source_url=page.url,
-                    raw_html=f"output/{output_name}/raw.html",
+                    raw_html=f"{output_root}/{page.name}/raw.html",
                     block_count=block_count,
-                    blocks_json=f"output/{output_name}/blocks.json",
+                    blocks_json=f"{output_root}/{page.name}/blocks.json",
                 )
             )
     except SourceDownloadError as error:

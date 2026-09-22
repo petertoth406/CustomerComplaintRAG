@@ -8,7 +8,7 @@ services:
     ports:
       - "127.0.0.1:${APP_PORT:-8000}:8000"
     environment:
-      OUTPUT_DIR: /app/output
+      OUTPUT_DIR: /workspace/output
       SOURCE_INSECURE: "${SOURCE_INSECURE:-false}"
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_EMBEDDING_MODEL: "${OLLAMA_EMBEDDING_MODEL:-qwen3-embedding:0.6b}"
@@ -16,7 +16,7 @@ services:
       CHROMA_PORT: "8000"
       CHROMA_COLLECTION: "${CHROMA_COLLECTION:-customer_complaints}"
     volumes:
-      - ./output:/app/output
+      - ./:/workspace
     depends_on:
       ollama-model-pull:
         condition: service_completed_successfully

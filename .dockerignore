@@ -6,6 +6,7 @@
 __pycache__
 *.py[cod]
 output
+output_*
 postman
 test_*.py
 *.log
