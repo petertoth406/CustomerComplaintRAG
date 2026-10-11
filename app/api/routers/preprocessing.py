@@ -4,12 +4,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.api.dependencies import get_semantic_service
 from app.clients.source_client import SourceDownloadError
 from app.schemas.preprocessing import (
     DownloadRequest,
     DownloadResponse,
     DownloadResult,
-    PageRequest,
     ProcessRequest,
     ProcessResponse,
     ProcessResult,
@@ -17,7 +17,16 @@ from app.schemas.preprocessing import (
     RunResponse,
     RunResult,
 )
+from app.schemas.semantic_search import (
+    EmbeddingRequest,
+    EmbeddingResponse,
+    EmbeddingResult,
+)
 from app.services.preprocessing_service import PreprocessingService
+from app.services.semantic_search_service import (
+    SemanticBackendError,
+    SemanticSearchService,
+)
 
 
 router = APIRouter(prefix="/preprocessing", tags=["preprocessing"])
@@ -28,6 +37,7 @@ def get_service() -> PreprocessingService:
 
 
 Service = Annotated[PreprocessingService, Depends(get_service)]
+SemanticService = Annotated[SemanticSearchService, Depends(get_semantic_service)]
 
 
 @router.post("/download", response_model=DownloadResponse)
@@ -116,9 +126,32 @@ def run_pipeline(request: RunRequest, service: Service) -> RunResponse:
     return RunResponse(timestamp=timestamp, results=results)
 
 
-@router.post("/embeddings", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-def create_embeddings(request: PageRequest) -> None:
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Az embedding készítése még nincs megvalósítva.",
+@router.post("/embeddings", response_model=EmbeddingResponse)
+def create_embeddings(
+    request: EmbeddingRequest,
+    service: SemanticService,
+) -> EmbeddingResponse:
+    try:
+        summaries = service.embed_pages(request.source_pages())
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="A feldolgozott blocks.json fájl nem található a sima output mappában.",
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+    except SemanticBackendError as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(error),
+        ) from error
+
+    results = [EmbeddingResult(**summary.__dict__) for summary in summaries]
+    return EmbeddingResponse(
+        results=results,
+        embedded_count=sum(result.embedded_count for result in results),
+        skipped_count=sum(result.skipped_count for result in results),
     )

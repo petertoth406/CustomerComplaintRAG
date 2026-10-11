@@ -12,9 +12,10 @@ SOURCE_INSECURE = os.getenv("SOURCE_INSECURE", "false").lower() in {"1", "true",
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 OLLAMA_EMBEDDING_MODEL = os.getenv(
-    "OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:0.6b"
+    "OLLAMA_EMBEDDING_MODEL", "bge-m3"
 )
 
 CHROMA_HOST = os.getenv("CHROMA_HOST", "127.0.0.1")
 CHROMA_PORT = int(os.getenv("CHROMA_PORT", "8001"))
 CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "customer_complaints")
+EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "32"))

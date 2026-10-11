@@ -11,7 +11,8 @@ services:
       OUTPUT_DIR: /workspace/output
       SOURCE_INSECURE: "${SOURCE_INSECURE:-false}"
       OLLAMA_BASE_URL: http://ollama:11434
-      OLLAMA_EMBEDDING_MODEL: "${OLLAMA_EMBEDDING_MODEL:-qwen3-embedding:0.6b}"
+      OLLAMA_EMBEDDING_MODEL: "${OLLAMA_EMBEDDING_MODEL:-bge-m3}"
+      EMBEDDING_BATCH_SIZE: "${EMBEDDING_BATCH_SIZE:-32}"
       CHROMA_HOST: chromadb
       CHROMA_PORT: "8000"
       CHROMA_COLLECTION: "${CHROMA_COLLECTION:-customer_complaints}"

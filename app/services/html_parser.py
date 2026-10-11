@@ -51,17 +51,33 @@ def extract_clean_text(element) -> str:
     )
 
 
+# def find_content_cell(soup):
+#     cells = soup.find_all("td", attrs={"width": "600"})
+#     if not cells:
+#         return None
+#     return max(
+#         cells,
+#         key=lambda element: (
+#             len(element.find_all("hr")),
+#             len(element.find_all(["h2", "h6"])),
+#             len(element.get_text(strip=True)),
+#         ),
+#     )
+
+def count_own_hr(cell):
+    return sum(
+        hr.find_parent("td") is cell
+        for hr in cell.find_all("hr")
+    )
+
+
 def find_content_cell(soup):
     cells = soup.find_all("td", attrs={"width": "600"})
-    if not cells:
-        return None
+
     return max(
         cells,
-        key=lambda element: (
-            len(element.find_all("hr")),
-            len(element.find_all(["h2", "h6"])),
-            len(element.get_text(strip=True)),
-        ),
+        key=count_own_hr,
+        default=None,
     )
 
 

@@ -46,6 +46,13 @@ class FileRepository:
             content_type = metadata.get("content_type", "")
         return DownloadedPage(content=content, content_type=content_type)
 
+    def load_blocks(self, page: SourcePage) -> list[dict]:
+        blocks_path = self.page_dir(page) / "blocks.json"
+        blocks = json.loads(blocks_path.read_text(encoding="utf-8"))
+        if not isinstance(blocks, list):
+            raise ValueError(f"A {blocks_path} tartalma nem lista.")
+        return blocks
+
     def save_processed(self, page: SourcePage, parsed: ParsedPage, *, timestamp: str | None = None, save_blocks: bool = False) -> Path:
         page_dir = self.page_dir(page, timestamp=timestamp)
         page_dir.mkdir(parents=True, exist_ok=True)
