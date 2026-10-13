@@ -7,6 +7,7 @@ A projekt egy FastAPI-alapú alkalmazás fogyasztói panaszok letöltéséhez, f
 Előfeltételek:
 
 - Docker Desktop (Windows alatt WSL 2 backenddel)
+- NVIDIA GPU, megfelelő NVIDIA driver és Docker GPU-támogatás
 - Git
 
 A projekt gyökerében futtasd:
@@ -23,6 +24,7 @@ Az első indítás tovább tarthat, mert a rendszer letölti az embedding modell
 
 | Szolgáltatás | URL |
 | --- | --- |
+| Angular kliens | `http://localhost:4200` |
 | API | `http://localhost:8000` |
 | Swagger | `http://localhost:8000/docs` |
 | Ollama | `http://localhost:11434` |
@@ -50,11 +52,29 @@ A `docker compose down` megtartja az Ollama- és ChromaDB-adatokat. A `docker co
 
 ### Feldolgozási kimenetek
 
-Időbélyeg nélkül a letöltés és feldolgozás mindig a normál `output/levelekN/`
-könyvtárat használja. A `timestamp: true` opció egy teljes futást külön,
+Időbélyeg nélkül a `/run` mindig a normál `output/levelekN/` könyvtárat
+használja. A `timestamp: true` opció egy teljes futást külön,
 `output_<timestamp>/levelekN/` felépítésű archívumba ment. Így az archívumon
 belüli oldalkönyvtárak neve változatlan marad, és a későbbi embedding mindig a
 sima `output/` tartalmából dolgozhat.
+
+A `/run` oldalanként egy `source.json` metaadatfájlt és egy kanonikus
+dokumentumokat tartalmazó `documents.jsonl` fájlt hoz létre.
+
+Egy rekord alakja:
+
+```json
+{
+  "schema_version": "1.0",
+  "document_id": "complaint:levelek34:0004",
+  "source_page": "levelek34",
+  "source_page_id": 34,
+  "document_index": 4,
+  "source_url": "https://fogyasztovedelem.hu/Varia_x/levelek34.htm",
+  "messages": [{"type": "complaint", "text": "...", "url": null}],
+  "text": "..."
+}
+```
 
 ## Konfiguráció
 
@@ -65,8 +85,9 @@ A beállításokat a `.env.example` alapján létrehozott, verziókezelésen kí
 | `APP_PORT` | `8000` | Az API host portja |
 | `OLLAMA_PORT` | `11434` | Az Ollama host portja |
 | `CHROMA_EXPOSED_PORT` | `8001` | A ChromaDB host portja |
+| `DEV_MODE` | `false` | Engedélyezi a fejlesztői `/download` és `/process` végpontokat |
 | `OLLAMA_EMBEDDING_MODEL` | `bge-m3` | A használt embedding modell |
-| `EMBEDDING_BATCH_SIZE` | `32` | Egy Ollama-kérésben embeddingelt blokkok száma |
+| `EMBEDDING_BATCH_SIZE` | `32` | Egy Ollama-kérésben embeddingelt dokumentumok száma |
 | `CHROMA_COLLECTION` | `customer_complaints` | A ChromaDB collection neve |
 | `SOURCE_INSECURE` | `false` | `true` értéknél kikapcsolja a forrásoldal TLS-ellenőrzését |
 
@@ -77,9 +98,21 @@ docker compose run --rm ollama-model-pull
 docker compose up -d
 ```
 
-## Embedding és keresés
+## Feldolgozás, embedding és keresés
 
-A feldolgozott oldal blokkjainak embeddingelése mindig a sima `output/`
+Az éles feldolgozási folyamat egyetlen végponttal futtatható:
+
+```http
+POST /api/v1/preprocessing/run
+Content-Type: application/json
+
+{"start_page": 34, "end_page": 36}
+```
+
+A külön `/download` és `/process` végpont kizárólag `DEV_MODE=true` esetén
+regisztrálódik, és ilyenkor hibakereséshez `raw.html`-t is használhat.
+
+A feldolgozott oldal kanonikus dokumentumainak embeddingelése mindig a sima `output/`
 könyvtárból történik. Egy oldal embeddingelése:
 
 ```http
@@ -89,11 +122,11 @@ Content-Type: application/json
 {"page_id": 35}
 ```
 
-Oldaltartományhoz `start_page` és `end_page` is megadható. A rendszer kizárólag
-a nem üres `full_text` mezőket embeddingeli, stabil `levelekN:block_id`
-azonosítókkal tölti őket ChromaDB-be, ezért az ismételt futtatás nem duplikál.
+Oldaltartományhoz `start_page` és `end_page` is megadható. A rendszer a nem üres
+`text` mezőket embeddingeli, és a stabil `document_id` azonosítókkal tölti őket
+ChromaDB-be, ezért az ismételt futtatás nem duplikál.
 
-A szemantikus keresés fixen legfeljebb öt blokkot ad vissza:
+A szemantikus keresés fixen legfeljebb öt dokumentumot ad vissza:
 
 ```http
 POST /api/v1/search
@@ -102,8 +135,14 @@ Content-Type: application/json
 {"query": "hibás mosógép garanciális javítása"}
 ```
 
-Minden találat tartalmazza a rangot, a `page_id` és `block_id` értéket, a teljes
-`full_text` szöveget, a forrás URL-jét és a ChromaDB által adott távolságot.
+Minden találat tartalmazza a rangot, a `page_id`, `document_id` és
+`document_index` értéket, a `text` szöveget, a forrás URL-jét és a ChromaDB
+által adott távolságot.
+
+Az Angular kliens egyszerű API-konzolt biztosít a meglévő státusz-,
+statisztikai, előfeldolgozási, embedding- és keresési végpontokhoz. Dockeres
+indításkor a `http://localhost:4200` címen érhető el, és a kéréseket belső
+proxy továbbítja az API-szolgáltatásnak.
 
 ## Lokális fejlesztői környezet
 
@@ -121,20 +160,32 @@ Az API ezután a `http://127.0.0.1:8000`, a Swagger pedig a `http://127.0.0.1:80
 docker compose up -d ollama ollama-model-pull chromadb chromadb-ui
 ```
 
-A tesztek futtatása:
+A kliens külön, fejlesztői módban is elindítható. A beépített proxy a
+`http://127.0.0.1:8000` címen futó API-nak továbbítja a kéréseket:
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -v
+cd client
+npm install
+npm start
 ```
+
+A kliens ezután a `http://localhost:4200` címen érhető el.
 
 ### VS Code
 
-A repository tartalmazza a javasolt bővítményeket, a környezet-előkészítő és teszt taskokat, valamint a `FastAPI: debug` és `FastAPI: debug + auto-reload` indítási konfigurációkat. Nyisd meg a projekt gyökerét, futtasd a szükséges taskokat a `Terminal > Run Task...` menüből, majd indítsd a kiválasztott konfigurációt az `F5` billentyűvel.
+A repository tartalmazza a javasolt bővítményeket, a környezet-előkészítő taskokat, valamint a `FastAPI: debug` és `FastAPI: debug + auto-reload` indítási konfigurációkat. Nyisd meg a projekt gyökerét, futtasd a szükséges taskokat a `Terminal > Run Task...` menüből, majd indítsd a kiválasztott konfigurációt az `F5` billentyűvel.
 
-## Opcionális NVIDIA GPU
+## GPU- és CPU-indítás
 
-Megfelelő NVIDIA driverrel és Docker GPU-támogatással az Ollama GPU-n is futtatható:
+Az alapértelmezett `docker compose` parancs automatikusan betölti a
+`compose.override.yaml` fájlt, ezért az Ollama NVIDIA GPU-val indul:
 
 ```powershell
-docker compose -f compose.yaml -f compose.gpu.yaml up --build -d
+docker compose up --build -d
+```
+
+GPU nélküli, CPU-s indításhoz csak az alapkonfigurációt add meg:
+
+```powershell
+docker compose -f compose.yaml up --build -d
 ```
