@@ -24,10 +24,8 @@ from app.schemas.semantic_search import (
     EmbeddingResult,
 )
 from app.services.preprocessing_service import PreprocessingService
-from app.services.semantic_search_service import (
-    SemanticBackendError,
-    SemanticSearchService,
-)
+from app.services.semantic_backend import SemanticBackendError
+from app.services.semantic_search_service import SemanticSearchService
 
 
 router = APIRouter(prefix="/preprocessing", tags=["preprocessing"])

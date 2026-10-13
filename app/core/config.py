@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from typing import Literal
 
 
 BASE_URL = "https://fogyasztovedelem.hu/Varia_x"
@@ -12,7 +13,8 @@ SOURCE_INSECURE = os.getenv("SOURCE_INSECURE", "false").lower() in {"1", "true",
 DEV_MODE = os.getenv("DEV_MODE", "false").lower() in {"1", "true", "yes"}
 
 
-CANONICAL_DOCUMENT_SCHEMA_VERSION = "1.0"
+CanonicalDocumentSchemaVersion = Literal["1.0"]
+CANONICAL_DOCUMENT_SCHEMA_VERSION: CanonicalDocumentSchemaVersion = "1.0"
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 OLLAMA_EMBEDDING_MODEL = os.getenv(

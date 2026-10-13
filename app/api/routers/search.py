@@ -6,10 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.dependencies import get_semantic_service
 from app.schemas.semantic_search import SearchHit, SearchRequest, SearchResponse
-from app.services.semantic_search_service import (
-    SemanticBackendError,
-    SemanticSearchService,
-)
+from app.services.semantic_backend import SemanticBackendError
+from app.services.semantic_search_service import SemanticSearchService
 
 
 router = APIRouter(prefix="/search", tags=["search"])

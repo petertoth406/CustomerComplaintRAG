@@ -1,28 +1,16 @@
-"""Create full-text embeddings and query them in ChromaDB."""
+"""Coordinate source loading, embedding generation, and semantic search."""
 
 from dataclasses import dataclass
 from typing import Any
 
-import chromadb
-import ollama
-
-from app.core.config import (
-    CHROMA_COLLECTION,
-    CHROMA_HOST,
-    CHROMA_PORT,
-    EMBEDDING_BATCH_SIZE,
-    OLLAMA_BASE_URL,
-    OLLAMA_EMBEDDING_MODEL,
-)
+from app.core.config import CHROMA_COLLECTION, EMBEDDING_BATCH_SIZE
 from app.models.source_page import SourcePage
+from app.repositories.chroma_repository import ChromaRepository, VectorRecord
 from app.repositories.file_repository import FileRepository
+from app.services.embedding_service import EmbeddingService
 
 
 TOP_RESULTS = 5
-
-
-class SemanticBackendError(Exception):
-    """The embedding model or vector database could not complete an operation."""
 
 
 @dataclass(frozen=True)
@@ -34,53 +22,30 @@ class EmbeddingSummary:
 
 
 class SemanticSearchService:
+    """Orchestrate document loading, embedding, and vector persistence."""
+
     def __init__(
         self,
         file_repository: FileRepository | None = None,
         ollama_client: Any | None = None,
         collection: Any | None = None,
+        embedding_service: EmbeddingService | None = None,
+        vector_store: ChromaRepository | None = None,
+        collection_name: str = CHROMA_COLLECTION,
     ) -> None:
         self.file_repository = file_repository or FileRepository()
-        self.ollama_client = ollama_client or ollama.Client(host=OLLAMA_BASE_URL)
-        if collection is None:
-            try:
-                chroma_client = chromadb.HttpClient(
-                    host=CHROMA_HOST,
-                    port=CHROMA_PORT,
-                )
-                collection = chroma_client.get_or_create_collection(
-                    name=CHROMA_COLLECTION,
-                    metadata={"hnsw:space": "cosine"},
-                )
-            except Exception as error:
-                raise SemanticBackendError(
-                    f"A ChromaDB kapcsolat nem hozható létre: {error}"
-                ) from error
-        self.collection = collection
-
-    def _embed(self, texts: list[str]) -> list[list[float]]:
-        try:
-            response = self.ollama_client.embed(
-                model=OLLAMA_EMBEDDING_MODEL,
-                input=texts,
-            )
-        except Exception as error:
-            raise SemanticBackendError(
-                f"Az embedding modell nem érhető el: {error}"
-            ) from error
-        embeddings = [list(embedding) for embedding in response.embeddings]
-        if len(embeddings) != len(texts):
-            raise SemanticBackendError(
-                "Az embedding modell nem minden bemenethez adott vissza vektort."
-            )
-        return embeddings
+        self.embedding_service = embedding_service or EmbeddingService(ollama_client=ollama_client)
+        self.vector_store = vector_store or ChromaRepository(
+            collection=collection,
+            collection_name=collection_name,
+        )
 
     def embed_pages(self, pages: list[SourcePage]) -> list[EmbeddingSummary]:
         return [self.embed_page(page) for page in pages]
 
     def embed_page(self, page: SourcePage) -> EmbeddingSummary:
         documents = self.file_repository.load_documents(page)
-        records: list[tuple[str, str, dict[str, str | int]]] = []
+        records: list[VectorRecord] = []
         skipped_count = 0
 
         for document in documents:
@@ -104,34 +69,28 @@ class SemanticSearchService:
             }
             if page.page_id is not None:
                 metadata["page_id"] = page.page_id
-            records.append((document_id, text, metadata))
-
-        current_ids = {record[0] for record in records}
-        try:
-            for start in range(0, len(records), EMBEDDING_BATCH_SIZE):
-                batch = records[start : start + EMBEDDING_BATCH_SIZE]
-                documents = [record[1] for record in batch]
-                self.collection.upsert(
-                    ids=[record[0] for record in batch],
-                    embeddings=self._embed(documents),
-                    documents=documents,
-                    metadatas=[record[2] for record in batch],
+            records.append(
+                VectorRecord(
+                    record_id=document_id,
+                    document=text,
+                    metadata=metadata,
                 )
+            )
 
-            stored = self.collection.get(where={"page": page.name})
-            stale_ids = [
-                stored_id
-                for stored_id in stored.get("ids", [])
-                if stored_id not in current_ids
-            ]
-            if stale_ids:
-                self.collection.delete(ids=stale_ids)
-        except SemanticBackendError:
-            raise
-        except Exception as error:
-            raise SemanticBackendError(
-                f"A ChromaDB írás sikertelen: {error}"
-            ) from error
+        current_ids = {record.record_id for record in records}
+        for start in range(0, len(records), EMBEDDING_BATCH_SIZE):
+            batch = records[start : start + EMBEDDING_BATCH_SIZE]
+            embeddings = self.embedding_service.embed(
+                [record.document for record in batch]
+            )
+            self.vector_store.upsert(batch, embeddings)
+
+        stale_ids = [
+            stored_id
+            for stored_id in self.vector_store.stored_ids_for_page(page.name)
+            if stored_id not in current_ids
+        ]
+        self.vector_store.delete(stale_ids)
 
         return EmbeddingSummary(
             page_id=page.page_id,
@@ -144,27 +103,15 @@ class SemanticSearchService:
         query_text = query.strip()
         if not query_text:
             raise ValueError("A keresési szöveg nem lehet üres.")
-        query_embedding = self._embed([query_text])[0]
-        try:
-            result = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=TOP_RESULTS,
-                include=["documents", "metadatas", "distances"],
-            )
-        except Exception as error:
-            raise SemanticBackendError(
-                f"A ChromaDB keresés sikertelen: {error}"
-            ) from error
 
-        documents = (result.get("documents") or [[]])[0]
-        metadatas = (result.get("metadatas") or [[]])[0]
-        distances = (result.get("distances") or [[]])[0]
+        query_embedding = self.embedding_service.embed([query_text])[0]
+        results = self.vector_store.search(
+            query_embedding,
+            n_results=TOP_RESULTS,
+        )
         hits: list[dict[str, Any]] = []
-        for rank, (document, metadata, distance) in enumerate(
-            zip(documents, metadatas, distances),
-            start=1,
-        ):
-            metadata = metadata or {}
+        for rank, result in enumerate(results, start=1):
+            metadata = result.metadata
             hits.append(
                 {
                     "rank": rank,
@@ -172,9 +119,9 @@ class SemanticSearchService:
                     "page": metadata.get("page", ""),
                     "document_id": metadata.get("document_id", ""),
                     "document_index": metadata.get("document_index", 0),
-                    "text": document or "",
+                    "text": result.document,
                     "source_url": metadata.get("source_url", ""),
-                    "distance": float(distance),
+                    "distance": result.distance,
                 }
             )
         return hits
