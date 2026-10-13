@@ -42,10 +42,10 @@ class DownloadRequest(PageSelection):
 
 
 class ProcessRequest(PageSelection):
-    save_blocks: bool = False
+    pass
 
 
-class RunRequest(ProcessRequest):
+class RunRequest(PageSelection):
     timestamp: bool = False
 
 
@@ -59,14 +59,16 @@ class DownloadResult(BaseModel):
 class ProcessResult(BaseModel):
     page: str
     output_directory: str
-    block_count: int
-    blocks_json: str
+    document_count: int
     documents_jsonl: str
 
 
-class RunResult(DownloadResult):
-    block_count: int
-    blocks_json: str
+class RunResult(BaseModel):
+    page: str
+    output_directory: str
+    source_url: str
+    source_metadata: str
+    document_count: int
     documents_jsonl: str
 
 

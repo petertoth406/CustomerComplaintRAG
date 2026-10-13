@@ -1,11 +1,13 @@
 """Storage compatible with the existing output/levelek*/ layout."""
 
 import json
+import shutil
 from dataclasses import asdict
+from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 
 from app.core.config import OUTPUT_DIR
-from app.models.complaint import ParsedPage
 from app.models.document import CanonicalDocument
 from app.models.source_page import DownloadedPage, SourcePage
 from app.schemas.canonical_document import CanonicalDocumentRecord
@@ -23,20 +25,42 @@ class FileRepository:
         )
         return output_dir / page.name
 
-    def save_raw(self, page: SourcePage, downloaded: DownloadedPage, *, timestamp: str | None = None) -> Path:
+    def save_source_metadata(self, page: SourcePage, downloaded: DownloadedPage, *, timestamp: str | None = None) -> Path:
         page_dir = self.page_dir(page, timestamp=timestamp)
         page_dir.mkdir(parents=True, exist_ok=True)
-        raw_path = page_dir / "raw.html"
-        raw_path.write_bytes(downloaded.content)
-        (page_dir / "source.json").write_text(
+        metadata_path = page_dir / "source.json"
+        metadata_path.write_text(
             json.dumps(
-                {"source_url": page.url, "content_type": downloaded.content_type},
+                {
+                    "source_url": page.url,
+                    "content_type": downloaded.content_type,
+                    "downloaded_at": datetime.now(timezone.utc).isoformat(),
+                    "content_sha256": sha256(downloaded.content).hexdigest(),
+                },
                 ensure_ascii=False,
                 indent=2,
             ),
             encoding="utf-8",
         )
+        return metadata_path
+
+    def save_raw(self, page: SourcePage, downloaded: DownloadedPage, *, timestamp: str | None = None) -> Path:
+        page_dir = self.page_dir(page, timestamp=timestamp)
+        page_dir.mkdir(parents=True, exist_ok=True)
+        raw_path = page_dir / "raw.html"
+        raw_path.write_bytes(downloaded.content)
+        self.save_source_metadata(page, downloaded, timestamp=timestamp)
         return raw_path
+
+    def remove_raw(self, page: SourcePage, *, timestamp: str | None = None) -> None:
+        (self.page_dir(page, timestamp=timestamp) / "raw.html").unlink(missing_ok=True)
+
+    def remove_legacy_artifacts(self, page: SourcePage, *, timestamp: str | None = None) -> None:
+        page_dir = self.page_dir(page, timestamp=timestamp)
+        (page_dir / "blocks.json").unlink(missing_ok=True)
+        legacy_directory = page_dir / "blocks"
+        if legacy_directory.is_dir():
+            shutil.rmtree(legacy_directory)
 
     def load_raw(self, page: SourcePage, *, timestamp: str | None = None) -> DownloadedPage:
         page_dir = self.page_dir(page, timestamp=timestamp)
@@ -47,13 +71,6 @@ class FileRepository:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             content_type = metadata.get("content_type", "")
         return DownloadedPage(content=content, content_type=content_type)
-
-    def load_blocks(self, page: SourcePage) -> list[dict]:
-        blocks_path = self.page_dir(page) / "blocks.json"
-        blocks = json.loads(blocks_path.read_text(encoding="utf-8"))
-        if not isinstance(blocks, list):
-            raise ValueError(f"A {blocks_path} tartalma nem lista.")
-        return blocks
 
     def load_documents(self, page: SourcePage) -> list[dict]:
         documents_path = self.page_dir(page) / "documents.jsonl"
@@ -94,36 +111,3 @@ class FileRepository:
             content += "\n"
         documents_path.write_text(content, encoding="utf-8")
         return documents_path
-
-    def save_processed(self, page: SourcePage, parsed: ParsedPage, *, timestamp: str | None = None, save_blocks: bool = False) -> Path:
-        page_dir = self.page_dir(page, timestamp=timestamp)
-        page_dir.mkdir(parents=True, exist_ok=True)
-        json_path = page_dir / "blocks.json"
-        json_path.write_text(
-            json.dumps(
-                [
-                    {
-                        "block_id": block.block_id,
-                        "source_url": block.source_url,
-                        "messages": [
-                            {key: value for key, value in asdict(message).items() if value is not None}
-                            for message in block.messages
-                        ],
-                        "full_text": block.full_text,
-                    }
-                    for block in parsed.blocks
-                ],
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-        if save_blocks:
-            blocks_dir = page_dir / "blocks"
-            blocks_dir.mkdir(exist_ok=True)
-            for index, fragment in enumerate(parsed.html_fragments, start=1):
-                (blocks_dir / f"block_{index:03d}.html").write_text(
-                    '<meta charset="utf-8">\n' + fragment,
-                    encoding="utf-8",
-                )
-        return json_path

@@ -79,29 +79,32 @@ class SemanticSearchService:
         return [self.embed_page(page) for page in pages]
 
     def embed_page(self, page: SourcePage) -> EmbeddingSummary:
-        blocks = self.file_repository.load_blocks(page)
+        documents = self.file_repository.load_documents(page)
         records: list[tuple[str, str, dict[str, str | int]]] = []
         skipped_count = 0
 
-        for block in blocks:
-            full_text = block.get("full_text")
-            block_id = block.get("block_id")
+        for document in documents:
+            text = document.get("text")
+            document_id = document.get("document_id")
+            document_index = document.get("document_index")
             if (
-                not isinstance(full_text, str)
-                or not full_text.strip()
-                or not isinstance(block_id, int)
+                not isinstance(text, str)
+                or not text.strip()
+                or not isinstance(document_id, str)
+                or not isinstance(document_index, int)
             ):
                 skipped_count += 1
                 continue
 
             metadata: dict[str, str | int] = {
                 "page": page.name,
-                "block_id": block_id,
-                "source_url": str(block.get("source_url", page.url)),
+                "document_id": document_id,
+                "document_index": document_index,
+                "source_url": str(document.get("source_url", page.url)),
             }
             if page.page_id is not None:
                 metadata["page_id"] = page.page_id
-            records.append((f"{page.name}:{block_id}", full_text, metadata))
+            records.append((document_id, text, metadata))
 
         current_ids = {record[0] for record in records}
         try:
@@ -167,8 +170,9 @@ class SemanticSearchService:
                     "rank": rank,
                     "page_id": metadata.get("page_id"),
                     "page": metadata.get("page", ""),
-                    "block_id": metadata.get("block_id", 0),
-                    "full_text": document or "",
+                    "document_id": metadata.get("document_id", ""),
+                    "document_index": metadata.get("document_index", 0),
+                    "text": document or "",
                     "source_url": metadata.get("source_url", ""),
                     "distance": float(distance),
                 }

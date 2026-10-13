@@ -1,4 +1,4 @@
-"""Parse complaint blocks from a downloaded HTML page."""
+"""Parse canonical complaint documents from a downloaded HTML page."""
 
 import codecs
 import re
@@ -6,7 +6,9 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
-from app.models.complaint import Block, Message, ParsedPage
+from app.core.config import CANONICAL_DOCUMENT_SCHEMA_VERSION
+from app.models.document import CanonicalDocument, Message
+from app.models.source_page import SourcePage
 
 
 HR_PATTERN = re.compile(r"<hr\b[^>]*>", re.IGNORECASE)
@@ -77,7 +79,7 @@ def find_content_cell(soup):
     )
 
 
-def parse_html(content: bytes, content_type: str, source_url: str) -> ParsedPage:
+def parse_html(content: bytes, content_type: str, page: SourcePage) -> list[CanonicalDocument]:
     encoding = detect_encoding(content, content_type)
     soup = BeautifulSoup(content.decode(encoding, errors="replace"), "html.parser")
     content_cell = find_content_cell(soup)
@@ -89,7 +91,7 @@ def parse_html(content: bytes, content_type: str, source_url: str) -> ParsedPage
         for fragment in HR_PATTERN.split(content_cell.decode_contents())
         if fragment.strip()
     ]
-    blocks: list[Block] = []
+    documents: list[CanonicalDocument] = []
 
     for index, fragment in enumerate(fragments, start=1):
         fragment_soup = BeautifulSoup(fragment, "html.parser")
@@ -113,7 +115,7 @@ def parse_html(content: bytes, content_type: str, source_url: str) -> ParsedPage
                     Message(
                         type="answer_reference",
                         text=answer_link.get_text(" ", strip=True),
-                        url=urljoin(source_url, answer_link["href"]),
+                        url=urljoin(page.url, answer_link["href"]),
                     )
                 )
                 continue
@@ -128,16 +130,24 @@ def parse_html(content: bytes, content_type: str, source_url: str) -> ParsedPage
             else:
                 messages.append(Message(type=message_type, text=element_text))
 
-        blocks.append(
-            Block(
-                block_id=index,
-                source_url=source_url,
+        text = "\n\n".join(
+            message.text
+            for message in messages
+            if message.type != "answer_reference"
+        )
+        if not text.strip():
+            continue
+        documents.append(
+            CanonicalDocument(
+                schema_version=CANONICAL_DOCUMENT_SCHEMA_VERSION,
+                document_id=f"complaint:{page.name}:{index:04d}",
+                source_page=page.name,
+                source_page_id=page.page_id,
+                document_index=index,
+                source_url=page.url,
                 messages=messages,
-                full_text="\n\n".join(
-                    message.text for message in messages
-                    if message.type != "answer_reference"
-                ),
+                text=text,
             )
         )
 
-    return ParsedPage(blocks=blocks, html_fragments=fragments)
+    return documents

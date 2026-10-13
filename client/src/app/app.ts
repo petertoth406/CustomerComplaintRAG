@@ -6,8 +6,6 @@ import { firstValueFrom } from 'rxjs';
 type RequestKey =
   | 'status'
   | 'statistics'
-  | 'download'
-  | 'process'
   | 'run'
   | 'embeddings'
   | 'search';
@@ -42,7 +40,6 @@ export class App {
     endPage: null,
   };
   timestamp = false;
-  saveBlocks = false;
   query = '';
 
   getStatus(): void {
@@ -53,25 +50,10 @@ export class App {
     void this.send('statistics', 'GET', '/api/v1/statistics');
   }
 
-  download(): void {
-    void this.send('download', 'POST', '/api/v1/preprocessing/download', {
-      ...this.selectionPayload(),
-      timestamp: this.timestamp,
-    });
-  }
-
-  process(): void {
-    void this.send('process', 'POST', '/api/v1/preprocessing/process', {
-      ...this.selectionPayload(),
-      save_blocks: this.saveBlocks,
-    });
-  }
-
   runPipeline(): void {
     void this.send('run', 'POST', '/api/v1/preprocessing/run', {
       ...this.selectionPayload(),
       timestamp: this.timestamp,
-      save_blocks: this.saveBlocks,
     });
   }
 

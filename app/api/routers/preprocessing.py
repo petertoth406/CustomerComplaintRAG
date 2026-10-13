@@ -1,4 +1,4 @@
-"""HTTP controller for download, processing, and future embedding."""
+"""HTTP controller for canonical document preparation and embedding."""
 
 from typing import Annotated
 
@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.dependencies import get_semantic_service
 from app.clients.source_client import SourceDownloadError
+from app.core.config import DEV_MODE
 from app.schemas.preprocessing import (
     DownloadRequest,
     DownloadResponse,
@@ -40,7 +41,6 @@ Service = Annotated[PreprocessingService, Depends(get_service)]
 SemanticService = Annotated[SemanticSearchService, Depends(get_semantic_service)]
 
 
-@router.post("/download", response_model=DownloadResponse)
 def download_pages(request: DownloadRequest, service: Service) -> DownloadResponse:
     timestamp = service.create_timestamp() if request.timestamp else None
     output_root = f"output_{timestamp}" if timestamp else "output"
@@ -64,18 +64,16 @@ def download_pages(request: DownloadRequest, service: Service) -> DownloadRespon
     return DownloadResponse(timestamp=timestamp, results=results)
 
 
-@router.post("/process", response_model=ProcessResponse)
 def process_pages(request: ProcessRequest, service: Service) -> ProcessResponse:
     results: list[ProcessResult] = []
     try:
         for page in request.source_pages():
-            block_count = service.process(page, save_blocks=request.save_blocks)
+            document_count = service.process(page)
             results.append(
                 ProcessResult(
                     page=page.name,
                     output_directory=f"output/{page.name}",
-                    block_count=block_count,
-                    blocks_json=f"output/{page.name}/blocks.json",
+                    document_count=document_count,
                     documents_jsonl=f"output/{page.name}/documents.jsonl",
                 )
             )
@@ -92,6 +90,21 @@ def process_pages(request: ProcessRequest, service: Service) -> ProcessResponse:
     return ProcessResponse(results=results)
 
 
+if DEV_MODE:
+    router.add_api_route(
+        "/download",
+        download_pages,
+        methods=["POST"],
+        response_model=DownloadResponse,
+    )
+    router.add_api_route(
+        "/process",
+        process_pages,
+        methods=["POST"],
+        response_model=ProcessResponse,
+    )
+
+
 @router.post("/run", response_model=RunResponse)
 def run_pipeline(request: RunRequest, service: Service) -> RunResponse:
     timestamp = service.create_timestamp() if request.timestamp else None
@@ -99,19 +112,14 @@ def run_pipeline(request: RunRequest, service: Service) -> RunResponse:
     results: list[RunResult] = []
     try:
         for page in request.source_pages():
-            block_count = service.run(
-                page,
-                timestamp=timestamp,
-                save_blocks=request.save_blocks,
-            )
+            document_count = service.run(page, timestamp=timestamp)
             results.append(
                 RunResult(
                     page=page.name,
                     output_directory=f"{output_root}/{page.name}",
                     source_url=page.url,
-                    raw_html=f"{output_root}/{page.name}/raw.html",
-                    block_count=block_count,
-                    blocks_json=f"{output_root}/{page.name}/blocks.json",
+                    source_metadata=f"{output_root}/{page.name}/source.json",
+                    document_count=document_count,
                     documents_jsonl=f"{output_root}/{page.name}/documents.jsonl",
                 )
             )
@@ -138,7 +146,7 @@ def create_embeddings(
     except FileNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="A feldolgozott blocks.json fájl nem található a sima output mappában.",
+            detail="A feldolgozott documents.jsonl fájl nem található a sima output mappában.",
         ) from error
     except ValueError as error:
         raise HTTPException(

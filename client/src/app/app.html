@@ -73,35 +73,9 @@
         <input type="checkbox" name="timestamp" [(ngModel)]="timestamp">
         <span>Időbélyeges kimenet</span>
       </label>
-      <label class="checkbox">
-        <input type="checkbox" name="saveBlocks" [(ngModel)]="saveBlocks">
-        <span>Blokkok külön mentése</span>
-      </label>
     </div>
 
     <div class="card-grid">
-      <article class="card">
-        <div class="endpoint"><span class="method post">POST</span><code>/api/v1/preprocessing/download</code></div>
-        <p>Forrásoldalak letöltése.</p>
-        <button type="button" (click)="download()" [disabled]="isLoading('download')">
-          {{ isLoading('download') ? 'Hívás folyamatban…' : 'Letöltés indítása' }}
-        </button>
-        @if (responseFor('download'); as response) {
-          <div class="response" [class.error]="!response.ok"><strong>HTTP {{ response.status }}</strong><pre>{{ response.body }}</pre></div>
-        }
-      </article>
-
-      <article class="card">
-        <div class="endpoint"><span class="method post">POST</span><code>/api/v1/preprocessing/process</code></div>
-        <p>Korábban letöltött HTML feldolgozása.</p>
-        <button type="button" (click)="process()" [disabled]="isLoading('process')">
-          {{ isLoading('process') ? 'Hívás folyamatban…' : 'Feldolgozás indítása' }}
-        </button>
-        @if (responseFor('process'); as response) {
-          <div class="response" [class.error]="!response.ok"><strong>HTTP {{ response.status }}</strong><pre>{{ response.body }}</pre></div>
-        }
-      </article>
-
       <article class="card">
         <div class="endpoint"><span class="method post">POST</span><code>/api/v1/preprocessing/run</code></div>
         <p>Letöltés és feldolgozás egyetlen hívással.</p>
@@ -115,7 +89,7 @@
 
       <article class="card">
         <div class="endpoint"><span class="method post">POST</span><code>/api/v1/preprocessing/embeddings</code></div>
-        <p>Embeddingek létrehozása a feldolgozott blokkokból.</p>
+        <p>Embeddingek létrehozása a kanonikus dokumentumokból.</p>
         <button type="button" (click)="createEmbeddings()" [disabled]="isLoading('embeddings')">
           {{ isLoading('embeddings') ? 'Hívás folyamatban…' : 'Embedding indítása' }}
         </button>

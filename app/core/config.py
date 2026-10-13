@@ -9,6 +9,10 @@ OUTPUT_DIR = Path(
     os.getenv("OUTPUT_DIR", Path(__file__).resolve().parents[2] / "output")
 )
 SOURCE_INSECURE = os.getenv("SOURCE_INSECURE", "false").lower() in {"1", "true", "yes"}
+DEV_MODE = os.getenv("DEV_MODE", "false").lower() in {"1", "true", "yes"}
+
+
+CANONICAL_DOCUMENT_SCHEMA_VERSION = "1.0"
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 OLLAMA_EMBEDDING_MODEL = os.getenv(

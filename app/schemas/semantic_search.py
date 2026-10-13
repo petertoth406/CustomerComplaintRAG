@@ -30,8 +30,9 @@ class SearchHit(BaseModel):
     rank: int
     page_id: int | None
     page: str
-    block_id: int
-    full_text: str
+    document_id: str
+    document_index: int
+    text: str
     source_url: str
     distance: float
 
