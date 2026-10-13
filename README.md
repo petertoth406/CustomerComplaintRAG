@@ -37,7 +37,7 @@ A ChromaDB UI kapcsolati adatai:
 | Tenant | `default_tenant` |
 | Database | `default_database` |
 | Ollama URL | `http://localhost:11434` |
-| Embedding model | `qwen3-embedding:0.6b` |
+| Embedding model | `bge-m3` |
 
 Logok követése és leállítás:
 
@@ -48,6 +48,14 @@ docker compose down
 
 A `docker compose down` megtartja az Ollama- és ChromaDB-adatokat. A `docker compose down -v` a tárolt modelleket és adatbázisadatokat is törli.
 
+### Feldolgozási kimenetek
+
+Időbélyeg nélkül a letöltés és feldolgozás mindig a normál `output/levelekN/`
+könyvtárat használja. A `timestamp: true` opció egy teljes futást külön,
+`output_<timestamp>/levelekN/` felépítésű archívumba ment. Így az archívumon
+belüli oldalkönyvtárak neve változatlan marad, és a későbbi embedding mindig a
+sima `output/` tartalmából dolgozhat.
+
 ## Konfiguráció
 
 A beállításokat a `.env.example` alapján létrehozott, verziókezelésen kívüli `.env` fájlban lehet felülírni:
@@ -57,7 +65,8 @@ A beállításokat a `.env.example` alapján létrehozott, verziókezelésen kí
 | `APP_PORT` | `8000` | Az API host portja |
 | `OLLAMA_PORT` | `11434` | Az Ollama host portja |
 | `CHROMA_EXPOSED_PORT` | `8001` | A ChromaDB host portja |
-| `OLLAMA_EMBEDDING_MODEL` | `qwen3-embedding:0.6b` | A használt embedding modell |
+| `OLLAMA_EMBEDDING_MODEL` | `bge-m3` | A használt embedding modell |
+| `EMBEDDING_BATCH_SIZE` | `32` | Egy Ollama-kérésben embeddingelt blokkok száma |
 | `CHROMA_COLLECTION` | `customer_complaints` | A ChromaDB collection neve |
 | `SOURCE_INSECURE` | `false` | `true` értéknél kikapcsolja a forrásoldal TLS-ellenőrzését |
 
@@ -67,6 +76,34 @@ Modellváltás után töltsd le az új modellt, majd indítsd újra a szolgálta
 docker compose run --rm ollama-model-pull
 docker compose up -d
 ```
+
+## Embedding és keresés
+
+A feldolgozott oldal blokkjainak embeddingelése mindig a sima `output/`
+könyvtárból történik. Egy oldal embeddingelése:
+
+```http
+POST /api/v1/preprocessing/embeddings
+Content-Type: application/json
+
+{"page_id": 35}
+```
+
+Oldaltartományhoz `start_page` és `end_page` is megadható. A rendszer kizárólag
+a nem üres `full_text` mezőket embeddingeli, stabil `levelekN:block_id`
+azonosítókkal tölti őket ChromaDB-be, ezért az ismételt futtatás nem duplikál.
+
+A szemantikus keresés fixen legfeljebb öt blokkot ad vissza:
+
+```http
+POST /api/v1/search
+Content-Type: application/json
+
+{"query": "hibás mosógép garanciális javítása"}
+```
+
+Minden találat tartalmazza a rangot, a `page_id` és `block_id` értéket, a teljes
+`full_text` szöveget, a forrás URL-jét és a ChromaDB által adott távolságot.
 
 ## Lokális fejlesztői környezet
 
