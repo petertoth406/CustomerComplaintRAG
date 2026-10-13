@@ -76,6 +76,7 @@ def process_pages(request: ProcessRequest, service: Service) -> ProcessResponse:
                     output_directory=f"output/{page.name}",
                     block_count=block_count,
                     blocks_json=f"output/{page.name}/blocks.json",
+                    documents_jsonl=f"output/{page.name}/documents.jsonl",
                 )
             )
     except FileNotFoundError as error:
@@ -111,6 +112,7 @@ def run_pipeline(request: RunRequest, service: Service) -> RunResponse:
                     raw_html=f"{output_root}/{page.name}/raw.html",
                     block_count=block_count,
                     blocks_json=f"{output_root}/{page.name}/blocks.json",
+                    documents_jsonl=f"{output_root}/{page.name}/documents.jsonl",
                 )
             )
     except SourceDownloadError as error:

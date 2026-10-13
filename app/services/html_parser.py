@@ -51,18 +51,14 @@ def extract_clean_text(element) -> str:
     )
 
 
-# def find_content_cell(soup):
-#     cells = soup.find_all("td", attrs={"width": "600"})
-#     if not cells:
-#         return None
-#     return max(
-#         cells,
-#         key=lambda element: (
-#             len(element.find_all("hr")),
-#             len(element.find_all(["h2", "h6"])),
-#             len(element.get_text(strip=True)),
-#         ),
-#     )
+def message_element_without_nested_messages(element):
+    fragment = BeautifulSoup(str(element), "html.parser")
+    cloned_element = fragment.find(element.name)
+    if cloned_element is None:
+        return fragment
+    for nested_message in cloned_element.find_all(["h2", "h6"]):
+        nested_message.decompose()
+    return cloned_element
 
 def count_own_hr(cell):
     return sum(
@@ -100,13 +96,14 @@ def parse_html(content: bytes, content_type: str, source_url: str) -> ParsedPage
         messages: list[Message] = []
 
         for element in fragment_soup.find_all(["h2", "h6"]):
-            element_text = extract_clean_text(element)
+            own_element = message_element_without_nested_messages(element)
+            element_text = extract_clean_text(own_element)
             if not element_text:
                 continue
 
             answer_link = next(
                 (
-                    anchor for anchor in element.find_all("a", href=True)
+                    anchor for anchor in own_element.find_all("a", href=True)
                     if "válasza" in anchor.get_text(" ", strip=True).casefold()
                 ),
                 None,

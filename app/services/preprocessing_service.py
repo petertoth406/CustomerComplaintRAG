@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 
 from app.clients.source_client import SourceClient
+from app.models.document import build_canonical_documents
 from app.models.source_page import SourcePage
 from app.repositories.file_repository import FileRepository
 from app.services.html_parser import parse_html
@@ -30,6 +31,8 @@ class PreprocessingService:
         downloaded = self.file_repository.load_raw(page, timestamp=timestamp)
         parsed = parse_html(downloaded.content, downloaded.content_type, page.url)
         self.file_repository.save_processed(page, parsed, timestamp=timestamp, save_blocks=save_blocks)
+        documents = build_canonical_documents(page, parsed.blocks)
+        self.file_repository.save_documents(page, documents, timestamp=timestamp)
         return len(parsed.blocks)
 
     def run(self, page: SourcePage, *, timestamp: str | None = None, save_blocks: bool = False) -> int:

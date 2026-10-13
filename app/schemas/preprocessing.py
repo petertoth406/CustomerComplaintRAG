@@ -61,11 +61,13 @@ class ProcessResult(BaseModel):
     output_directory: str
     block_count: int
     blocks_json: str
+    documents_jsonl: str
 
 
 class RunResult(DownloadResult):
     block_count: int
     blocks_json: str
+    documents_jsonl: str
 
 
 class DownloadResponse(BaseModel):
