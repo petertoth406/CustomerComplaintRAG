@@ -1,6 +1,17 @@
 name: customer-complaint-rag
 
 services:
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${CLIENT_PORT:-4200}:80"
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
   api:
     build:
       context: .
