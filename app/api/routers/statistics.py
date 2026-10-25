@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.schemas.statistics import StatisticsDiscoveryResponse
+from app.schemas.statistics import StatisticsResponse
 from app.services.statistics_service import StatisticsService
 
 
@@ -18,6 +18,6 @@ def get_service() -> StatisticsService:
 Service = Annotated[StatisticsService, Depends(get_service)]
 
 
-@router.get("", response_model=StatisticsDiscoveryResponse)
-def get_statistics(service: Service) -> StatisticsDiscoveryResponse:
-    return service.discover_dataset()
+@router.get("", response_model=StatisticsResponse)
+def get_statistics(service: Service) -> StatisticsResponse:
+    return service.get_statistics()

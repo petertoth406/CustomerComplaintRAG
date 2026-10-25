@@ -26,7 +26,46 @@ class DatasetDescriptor(BaseModel):
     missing_page_ids_inside_range: list[int]
 
 
-class StatisticsDiscoveryResponse(BaseModel):
+class ContentCounts(BaseModel):
+    document_count: int | None = Field(default=None, ge=0)
+    complaint_document_count: int | None = Field(default=None, ge=0)
+    complaint_message_count: int | None = Field(default=None, ge=0)
+    inline_answer_count: int | None = Field(default=None, ge=0)
+    external_answer_reference_count: int | None = Field(default=None, ge=0)
+    detected_answer_count: int | None = Field(default=None, ge=0)
+    answered_document_count: int | None = Field(default=None, ge=0)
+
+
+class PageStatistics(BaseModel):
+    page: str = Field(pattern=r"^levelek(?:[1-9]\d*)?$")
+    page_id: int | None = Field(default=None, ge=1)
+    source_url: str | None = None
+    downloaded_at: datetime | None = None
+    download_status: Literal["available", "missing", "invalid"]
+    processing_status: Literal[
+        "processed",
+        "processed_empty",
+        "not_processed",
+        "invalid",
+    ]
+    content: ContentCounts
+
+
+class DatasetSummary(BaseModel):
+    page_directory_count: int = Field(ge=0)
+    downloaded_page_count: int = Field(ge=0)
+    missing_source_metadata_count: int = Field(ge=0)
+    invalid_source_metadata_count: int = Field(ge=0)
+    processed_page_count: int = Field(ge=0)
+    empty_processed_page_count: int = Field(ge=0)
+    not_processed_page_count: int = Field(ge=0)
+    invalid_documents_file_count: int = Field(ge=0)
+    content: ContentCounts
+
+
+class StatisticsResponse(BaseModel):
     generated_at: datetime
     statistics_schema_version: StatisticsSchemaVersion
     dataset: DatasetDescriptor
+    summary: DatasetSummary
+    pages: list[PageStatistics]

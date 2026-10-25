@@ -1,15 +1,19 @@
 """Read-only discovery of source-page directories in an output dataset."""
 
 from dataclasses import dataclass
+from datetime import datetime
+import json
 from pathlib import Path
 import re
+from typing import Literal
+
+from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import OUTPUT_DIR
+from app.schemas.canonical_document import CanonicalDocumentRecord
 
 
-SOURCE_PAGE_DIRECTORY_PATTERN = re.compile(
-    r"^levelek(?P<page_id>[1-9]\d*)?$"
-)
+SOURCE_PAGE_DIRECTORY_PATTERN = re.compile(r"^levelek(?P<page_id>[1-9]\d*)?$")
 
 
 @dataclass(frozen=True)
@@ -18,6 +22,32 @@ class DiscoveredSourcePage:
 
     name: str
     page_id: int | None
+
+
+SourceMetadataStatus = Literal["available", "missing", "invalid"]
+DocumentsStatus = Literal["processed", "processed_empty", "not_processed", "invalid"]
+
+
+class SourceMetadataRecord(BaseModel):
+    """Fields persisted by FileRepository.save_source_metadata."""
+
+    source_url: str = Field(min_length=1)
+    content_type: str
+    downloaded_at: datetime
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True)
+class SourceMetadataSnapshot:
+    status: SourceMetadataStatus
+    source_url: str | None = None
+    downloaded_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class DocumentsSnapshot:
+    status: DocumentsStatus
+    documents: tuple[CanonicalDocumentRecord, ...] = ()
 
 
 class OutputStatisticsRepository:
@@ -56,4 +86,47 @@ class OutputStatisticsRepository:
                 page.page_id is not None,
                 page.page_id if page.page_id is not None else 0,
             ),
+        )
+
+    def read_source_metadata(self, page: DiscoveredSourcePage) -> SourceMetadataSnapshot:
+        metadata_path = self.output_dir / page.name / "source.json"
+        if not metadata_path.is_file():
+            return SourceMetadataSnapshot(status="missing")
+
+        try:
+            raw_metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata = SourceMetadataRecord.model_validate(raw_metadata)
+        except (OSError, UnicodeError, json.JSONDecodeError, ValidationError):
+            return SourceMetadataSnapshot(status="invalid")
+
+        return SourceMetadataSnapshot(
+            status="available",
+            source_url=metadata.source_url,
+            downloaded_at=metadata.downloaded_at,
+        )
+
+    def read_documents(self, page: DiscoveredSourcePage) -> DocumentsSnapshot:
+        documents_path = self.output_dir / page.name / "documents.jsonl"
+        if not documents_path.is_file():
+            return DocumentsSnapshot(status="not_processed")
+
+        try:
+            lines = documents_path.read_text(encoding="utf-8").splitlines()
+            documents = tuple(
+                CanonicalDocumentRecord.model_validate(json.loads(line))
+                for line in lines
+                if line.strip()
+            )
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            TypeError,
+            ValidationError,
+        ):
+            return DocumentsSnapshot(status="invalid")
+
+        return DocumentsSnapshot(
+            status="processed" if documents else "processed_empty",
+            documents=documents,
         )

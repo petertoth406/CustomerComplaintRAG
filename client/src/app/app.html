@@ -33,7 +33,7 @@
 
       <article class="card">
         <div class="endpoint"><span class="method get">GET</span><code>/api/v1/statistics</code></div>
-        <p>Az output adathalmazban felismert forrásoldalak és számozási hézagok lekérése.</p>
+        <p>Letöltési és feldolgozási állapot, valamint panasz- és válaszösszesítés az output alapján.</p>
         <button type="button" (click)="getStatistics()" [disabled]="isLoading('statistics')">
           {{ isLoading('statistics') ? 'Hívás folyamatban…' : 'Statisztika lekérése' }}
         </button>
