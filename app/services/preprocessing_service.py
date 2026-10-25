@@ -26,12 +26,18 @@ class PreprocessingService:
         self.file_repository.save_raw(page, downloaded, timestamp=timestamp)
         return page.name
 
-    def process(self, page: SourcePage, *, timestamp: str | None = None, save_blocks: bool = False) -> int:
+    def process(self, page: SourcePage, *, timestamp: str | None = None) -> int:
         downloaded = self.file_repository.load_raw(page, timestamp=timestamp)
-        parsed = parse_html(downloaded.content, downloaded.content_type, page.url)
-        self.file_repository.save_processed(page, parsed, timestamp=timestamp, save_blocks=save_blocks)
-        return len(parsed.blocks)
+        documents = parse_html(downloaded.content, downloaded.content_type, page)
+        self.file_repository.save_documents(page, documents, timestamp=timestamp)
+        self.file_repository.remove_legacy_artifacts(page, timestamp=timestamp)
+        return len(documents)
 
-    def run(self, page: SourcePage, *, timestamp: str | None = None, save_blocks: bool = False) -> int:
-        self.download(page, timestamp=timestamp)
-        return self.process(page, timestamp=timestamp, save_blocks=save_blocks)
+    def run(self, page: SourcePage, *, timestamp: str | None = None) -> int:
+        downloaded = self.source_client.download(page)
+        documents = parse_html(downloaded.content, downloaded.content_type, page)
+        self.file_repository.save_source_metadata(page, downloaded, timestamp=timestamp)
+        self.file_repository.save_documents(page, documents, timestamp=timestamp)
+        self.file_repository.remove_raw(page, timestamp=timestamp)
+        self.file_repository.remove_legacy_artifacts(page, timestamp=timestamp)
+        return len(documents)

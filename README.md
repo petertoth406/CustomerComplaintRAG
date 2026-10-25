@@ -7,6 +7,7 @@ A projekt egy FastAPI-alapú alkalmazás fogyasztói panaszok letöltéséhez, f
 Előfeltételek:
 
 - Docker Desktop (Windows alatt WSL 2 backenddel)
+- NVIDIA GPU, megfelelő NVIDIA driver és Docker GPU-támogatás
 - Git
 
 A projekt gyökerében futtasd:
@@ -17,12 +18,15 @@ docker compose up --build -d
 docker compose ps
 ```
 
-Az első indítás tovább tarthat, mert a rendszer letölti az embedding modellt. Az API csak ennek sikeres befejezése után indul el.
+Az első build és indítás tovább tarthat, mert a rendszer letölti a BGE-M3
+tokenizálót és az embedding modellt. Az API csak ezek sikeres előkészítése után
+indul el.
 
 ### Elérhető felületek
 
 | Szolgáltatás | URL |
 | --- | --- |
+| Angular kliens | `http://localhost:4200` |
 | API | `http://localhost:8000` |
 | Swagger | `http://localhost:8000/docs` |
 | Ollama | `http://localhost:11434` |
@@ -50,11 +54,33 @@ A `docker compose down` megtartja az Ollama- és ChromaDB-adatokat. A `docker co
 
 ### Feldolgozási kimenetek
 
-Időbélyeg nélkül a letöltés és feldolgozás mindig a normál `output/levelekN/`
-könyvtárat használja. A `timestamp: true` opció egy teljes futást külön,
+Időbélyeg nélkül a `/run` mindig a normál `output/levelekN/` könyvtárat
+használja. A `timestamp: true` opció egy teljes futást külön,
 `output_<timestamp>/levelekN/` felépítésű archívumba ment. Így az archívumon
 belüli oldalkönyvtárak neve változatlan marad, és a későbbi embedding mindig a
 sima `output/` tartalmából dolgozhat.
+
+A `/run` oldalanként egy `source.json` metaadatfájlt és egy kanonikus
+dokumentumokat tartalmazó `documents.jsonl` fájlt hoz létre.
+
+Az embedding végpont a kiválasztott chunkkonfigurációkhoz külön JSONL-fájlokat
+hoz létre az `output/levelekN/chunks/` könyvtárban, és konfigurációnként külön
+ChromaDB collectiont tölt fel.
+
+Egy rekord alakja:
+
+```json
+{
+  "schema_version": "1.0",
+  "document_id": "complaint:levelek34:0004",
+  "source_page": "levelek34",
+  "source_page_id": 34,
+  "document_index": 4,
+  "source_url": "https://fogyasztovedelem.hu/Varia_x/levelek34.htm",
+  "messages": [{"type": "complaint", "text": "...", "url": null}],
+  "text": "..."
+}
+```
 
 ## Konfiguráció
 
@@ -65,10 +91,23 @@ A beállításokat a `.env.example` alapján létrehozott, verziókezelésen kí
 | `APP_PORT` | `8000` | Az API host portja |
 | `OLLAMA_PORT` | `11434` | Az Ollama host portja |
 | `CHROMA_EXPOSED_PORT` | `8001` | A ChromaDB host portja |
+| `DEV_MODE` | `false` | Engedélyezi a fejlesztői `/download` és `/process` végpontokat |
 | `OLLAMA_EMBEDDING_MODEL` | `bge-m3` | A használt embedding modell |
-| `EMBEDDING_BATCH_SIZE` | `32` | Egy Ollama-kérésben embeddingelt blokkok száma |
-| `CHROMA_COLLECTION` | `customer_complaints` | A ChromaDB collection neve |
+| `EMBEDDING_BATCH_SIZE` | `32` | Egy Ollama-kérésben embeddingelt chunkok száma |
+| `DEFAULT_CHUNK_CONFIG_ID` | `structural_hr_v1` | Alapértelmezett chunkkonfiguráció |
 | `SOURCE_INSECURE` | `false` | `true` értéknél kikapcsolja a forrásoldal TLS-ellenőrzését |
+
+A verziózott chunkkonfigurációk a `config/chunking/` könyvtárban találhatók:
+
+| Konfiguráció | Stratégia | Collection |
+| --- | --- | --- |
+| `structural_hr_v1` | Egy chunk minden `<hr>` mentén elkülönített dokumentumból | `complaints_structural_hr_v1` |
+| `fixed_500_100_v1` | 500 token, 100 token átfedés | `complaints_fixed_500_100_v1` |
+| `fixed_1000_200_v1` | 1000 token, 200 token átfedés | `complaints_fixed_1000_200_v1` |
+
+A tokenhatárokat a konfigurációkban rögzített `BAAI/bge-m3` tokenizer adja.
+A tokenizáló modell és annak pontos revision azonosítója minden YAML-fájlban
+szerepel.
 
 Modellváltás után töltsd le az új modellt, majd indítsd újra a szolgáltatásokat:
 
@@ -77,33 +116,63 @@ docker compose run --rm ollama-model-pull
 docker compose up -d
 ```
 
-## Embedding és keresés
+## Feldolgozás, embedding és keresés
 
-A feldolgozott oldal blokkjainak embeddingelése mindig a sima `output/`
+Az éles feldolgozási folyamat egyetlen végponttal futtatható:
+
+```http
+POST /api/v1/preprocessing/run
+Content-Type: application/json
+
+{"start_page": 34, "end_page": 36}
+```
+
+A külön `/download` és `/process` végpont kizárólag `DEV_MODE=true` esetén
+regisztrálódik, és ilyenkor hibakereséshez `raw.html`-t is használhat.
+
+A feldolgozott oldal kanonikus dokumentumainak embeddingelése mindig a sima `output/`
 könyvtárból történik. Egy oldal embeddingelése:
 
 ```http
 POST /api/v1/preprocessing/embeddings
 Content-Type: application/json
 
-{"page_id": 35}
+{
+  "page_id": 35,
+  "chunk_config_ids": [
+    "structural_hr_v1",
+    "fixed_500_100_v1",
+    "fixed_1000_200_v1"
+  ]
+}
 ```
 
-Oldaltartományhoz `start_page` és `end_page` is megadható. A rendszer kizárólag
-a nem üres `full_text` mezőket embeddingeli, stabil `levelekN:block_id`
-azonosítókkal tölti őket ChromaDB-be, ezért az ismételt futtatás nem duplikál.
+Oldaltartományhoz `start_page` és `end_page` is megadható. Egyetlen módszerhez
+csak annak konfigurációazonosítóját kell elküldeni. A rendszer a kiválasztott
+konfigurációk chunkjait stabil `chunk_id` azonosítókkal tölti a megfelelő
+ChromaDB collectionbe, ezért az ismételt futtatás nem duplikál.
 
-A szemantikus keresés fixen legfeljebb öt blokkot ad vissza:
+A szemantikus keresés fixen legfeljebb öt chunkot ad vissza:
 
 ```http
 POST /api/v1/search
 Content-Type: application/json
 
-{"query": "hibás mosógép garanciális javítása"}
+{
+  "query": "hibás mosógép garanciális javítása",
+  "chunk_config_id": "fixed_500_100_v1"
+}
 ```
 
-Minden találat tartalmazza a rangot, a `page_id` és `block_id` értéket, a teljes
-`full_text` szöveget, a forrás URL-jét és a ChromaDB által adott távolságot.
+Minden találat tartalmazza a rangot, a dokumentum- és chunkazonosítókat, a
+chunkkonfigurációt, a tokenszámot, a `text` szöveget, a forrás URL-jét és a
+ChromaDB által adott távolságot. A keresés mindig pontosan egy konfigurációhoz
+tartozó collectionben fut.
+
+Az Angular kliens egyszerű API-konzolt biztosít a meglévő státusz-,
+statisztikai, előfeldolgozási, embedding- és keresési végpontokhoz. Dockeres
+indításkor a `http://localhost:4200` címen érhető el, és a kéréseket belső
+proxy továbbítja az API-szolgáltatásnak.
 
 ## Lokális fejlesztői környezet
 
@@ -121,20 +190,32 @@ Az API ezután a `http://127.0.0.1:8000`, a Swagger pedig a `http://127.0.0.1:80
 docker compose up -d ollama ollama-model-pull chromadb chromadb-ui
 ```
 
-A tesztek futtatása:
+A kliens külön, fejlesztői módban is elindítható. A beépített proxy a
+`http://127.0.0.1:8000` címen futó API-nak továbbítja a kéréseket:
 
 ```powershell
-.\.venv\Scripts\python.exe -m unittest discover -v
+cd client
+npm install
+npm start
 ```
+
+A kliens ezután a `http://localhost:4200` címen érhető el.
 
 ### VS Code
 
-A repository tartalmazza a javasolt bővítményeket, a környezet-előkészítő és teszt taskokat, valamint a `FastAPI: debug` és `FastAPI: debug + auto-reload` indítási konfigurációkat. Nyisd meg a projekt gyökerét, futtasd a szükséges taskokat a `Terminal > Run Task...` menüből, majd indítsd a kiválasztott konfigurációt az `F5` billentyűvel.
+A repository tartalmazza a javasolt bővítményeket, a környezet-előkészítő taskokat, valamint a `FastAPI: debug` és `FastAPI: debug + auto-reload` indítási konfigurációkat. Nyisd meg a projekt gyökerét, futtasd a szükséges taskokat a `Terminal > Run Task...` menüből, majd indítsd a kiválasztott konfigurációt az `F5` billentyűvel.
 
-## Opcionális NVIDIA GPU
+## GPU- és CPU-indítás
 
-Megfelelő NVIDIA driverrel és Docker GPU-támogatással az Ollama GPU-n is futtatható:
+Az alapértelmezett `docker compose` parancs automatikusan betölti a
+`compose.override.yaml` fájlt, ezért az Ollama NVIDIA GPU-val indul:
 
 ```powershell
-docker compose -f compose.yaml -f compose.gpu.yaml up --build -d
+docker compose up --build -d
+```
+
+GPU nélküli, CPU-s indításhoz csak az alapkonfigurációt add meg:
+
+```powershell
+docker compose -f compose.yaml up --build -d
 ```

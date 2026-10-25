@@ -1,34 +1,28 @@
-"""Create full-text embeddings and query them in ChromaDB."""
+"""Coordinate chunking, embedding generation, and semantic search."""
 
 from dataclasses import dataclass
 from typing import Any
 
-import chromadb
-import ollama
-
-from app.core.config import (
-    CHROMA_COLLECTION,
-    CHROMA_HOST,
-    CHROMA_PORT,
-    EMBEDDING_BATCH_SIZE,
-    OLLAMA_BASE_URL,
-    OLLAMA_EMBEDDING_MODEL,
-)
+from app.core.chunk_config import ChunkConfigRegistry
+from app.core.config import EMBEDDING_BATCH_SIZE
 from app.models.source_page import SourcePage
+from app.repositories.chroma_repository import ChromaRepository, VectorRecord
 from app.repositories.file_repository import FileRepository
+from app.schemas.chunking import ChunkConfig
+from app.services.chunking_service import ChunkingService
+from app.services.embedding_service import EmbeddingService
 
 
 TOP_RESULTS = 5
-
-
-class SemanticBackendError(Exception):
-    """The embedding model or vector database could not complete an operation."""
 
 
 @dataclass(frozen=True)
 class EmbeddingSummary:
     page_id: int | None
     page: str
+    chunk_config_id: str
+    collection_name: str
+    chunks_jsonl: str
     embedded_count: int
     skipped_count: int
 
@@ -38,139 +32,133 @@ class SemanticSearchService:
         self,
         file_repository: FileRepository | None = None,
         ollama_client: Any | None = None,
-        collection: Any | None = None,
+        embedding_service: EmbeddingService | None = None,
+        chunking_service: ChunkingService | None = None,
+        chunk_config_registry: ChunkConfigRegistry | None = None,
     ) -> None:
         self.file_repository = file_repository or FileRepository()
-        self.ollama_client = ollama_client or ollama.Client(host=OLLAMA_BASE_URL)
-        if collection is None:
-            try:
-                chroma_client = chromadb.HttpClient(
-                    host=CHROMA_HOST,
-                    port=CHROMA_PORT,
-                )
-                collection = chroma_client.get_or_create_collection(
-                    name=CHROMA_COLLECTION,
-                    metadata={"hnsw:space": "cosine"},
-                )
-            except Exception as error:
-                raise SemanticBackendError(
-                    f"A ChromaDB kapcsolat nem hozható létre: {error}"
-                ) from error
-        self.collection = collection
+        self.embedding_service = embedding_service or EmbeddingService(
+            ollama_client=ollama_client
+        )
+        self.chunking_service = chunking_service or ChunkingService()
+        self.chunk_config_registry = chunk_config_registry or ChunkConfigRegistry()
+        self.vector_stores: dict[str, ChromaRepository] = {}
 
-    def _embed(self, texts: list[str]) -> list[list[float]]:
-        try:
-            response = self.ollama_client.embed(
-                model=OLLAMA_EMBEDDING_MODEL,
-                input=texts,
-            )
-        except Exception as error:
-            raise SemanticBackendError(
-                f"Az embedding modell nem érhető el: {error}"
-            ) from error
-        embeddings = [list(embedding) for embedding in response.embeddings]
-        if len(embeddings) != len(texts):
-            raise SemanticBackendError(
-                "Az embedding modell nem minden bemenethez adott vissza vektort."
-            )
-        return embeddings
+    def embed_pages(
+        self,
+        pages: list[SourcePage],
+        chunk_config_ids: list[str] | None = None,
+    ) -> list[EmbeddingSummary]:
+        configs = self.chunk_config_registry.resolve(chunk_config_ids)
+        return [
+            self.embed_page(page, config)
+            for page in pages
+            for config in configs
+        ]
 
-    def embed_pages(self, pages: list[SourcePage]) -> list[EmbeddingSummary]:
-        return [self.embed_page(page) for page in pages]
+    def embed_page(
+        self,
+        page: SourcePage,
+        config: ChunkConfig,
+    ) -> EmbeddingSummary:
+        documents = self.file_repository.load_documents(page)
+        chunks = self.chunking_service.chunk_documents(documents, config)
+        self.file_repository.save_chunks(page, config.id, chunks)
+        vector_store = self._get_vector_store(config)
 
-    def embed_page(self, page: SourcePage) -> EmbeddingSummary:
-        blocks = self.file_repository.load_blocks(page)
-        records: list[tuple[str, str, dict[str, str | int]]] = []
-        skipped_count = 0
-
-        for block in blocks:
-            full_text = block.get("full_text")
-            block_id = block.get("block_id")
-            if (
-                not isinstance(full_text, str)
-                or not full_text.strip()
-                or not isinstance(block_id, int)
-            ):
-                skipped_count += 1
-                continue
-
+        records: list[VectorRecord] = []
+        for chunk in chunks:
             metadata: dict[str, str | int] = {
-                "page": page.name,
-                "block_id": block_id,
-                "source_url": str(block.get("source_url", page.url)),
+                "page": chunk.source_page,
+                "document_id": chunk.document_id,
+                "document_index": chunk.document_index,
+                "chunk_id": chunk.chunk_id,
+                "chunk_config_id": chunk.chunk_config_id,
+                "chunk_index": chunk.chunk_index,
+                "strategy": chunk.strategy,
+                "token_start": chunk.token_start,
+                "token_end": chunk.token_end,
+                "token_count": chunk.token_count,
+                "source_url": chunk.source_url,
             }
-            if page.page_id is not None:
-                metadata["page_id"] = page.page_id
-            records.append((f"{page.name}:{block_id}", full_text, metadata))
-
-        current_ids = {record[0] for record in records}
-        try:
-            for start in range(0, len(records), EMBEDDING_BATCH_SIZE):
-                batch = records[start : start + EMBEDDING_BATCH_SIZE]
-                documents = [record[1] for record in batch]
-                self.collection.upsert(
-                    ids=[record[0] for record in batch],
-                    embeddings=self._embed(documents),
-                    documents=documents,
-                    metadatas=[record[2] for record in batch],
+            if chunk.source_page_id is not None:
+                metadata["page_id"] = chunk.source_page_id
+            records.append(
+                VectorRecord(
+                    record_id=chunk.chunk_id,
+                    document=chunk.text,
+                    metadata=metadata,
                 )
+            )
 
-            stored = self.collection.get(where={"page": page.name})
-            stale_ids = [
-                stored_id
-                for stored_id in stored.get("ids", [])
-                if stored_id not in current_ids
-            ]
-            if stale_ids:
-                self.collection.delete(ids=stale_ids)
-        except SemanticBackendError:
-            raise
-        except Exception as error:
-            raise SemanticBackendError(
-                f"A ChromaDB írás sikertelen: {error}"
-            ) from error
+        current_ids = {record.record_id for record in records}
+        for start in range(0, len(records), EMBEDDING_BATCH_SIZE):
+            batch = records[start : start + EMBEDDING_BATCH_SIZE]
+            embeddings = self.embedding_service.embed(
+                [record.document for record in batch]
+            )
+            vector_store.upsert(batch, embeddings)
 
+        stale_ids = [
+            stored_id
+            for stored_id in vector_store.stored_ids_for_page(page.name)
+            if stored_id not in current_ids
+        ]
+        vector_store.delete(stale_ids)
+
+        chunked_document_ids = {chunk.document_id for chunk in chunks}
         return EmbeddingSummary(
             page_id=page.page_id,
             page=page.name,
+            chunk_config_id=config.id,
+            collection_name=config.collection_name,
+            chunks_jsonl=f"output/{page.name}/chunks/{config.id}.jsonl",
             embedded_count=len(records),
-            skipped_count=skipped_count,
+            skipped_count=sum(
+                str(document["document_id"]) not in chunked_document_ids
+                for document in documents
+            ),
         )
 
-    def search(self, query: str) -> list[dict[str, Any]]:
+    def search(
+        self,
+        query: str,
+        chunk_config_id: str,
+    ) -> list[dict[str, Any]]:
         query_text = query.strip()
         if not query_text:
             raise ValueError("A keresési szöveg nem lehet üres.")
-        query_embedding = self._embed([query_text])[0]
-        try:
-            result = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=TOP_RESULTS,
-                include=["documents", "metadatas", "distances"],
-            )
-        except Exception as error:
-            raise SemanticBackendError(
-                f"A ChromaDB keresés sikertelen: {error}"
-            ) from error
 
-        documents = (result.get("documents") or [[]])[0]
-        metadatas = (result.get("metadatas") or [[]])[0]
-        distances = (result.get("distances") or [[]])[0]
+        config = self.chunk_config_registry.get(chunk_config_id)
+        query_embedding = self.embedding_service.embed([query_text])[0]
+        results = self._get_vector_store(config).search(
+            query_embedding,
+            n_results=TOP_RESULTS,
+        )
         hits: list[dict[str, Any]] = []
-        for rank, (document, metadata, distance) in enumerate(
-            zip(documents, metadatas, distances),
-            start=1,
-        ):
-            metadata = metadata or {}
+        for rank, result in enumerate(results, start=1):
+            metadata = result.metadata
             hits.append(
                 {
                     "rank": rank,
                     "page_id": metadata.get("page_id"),
                     "page": metadata.get("page", ""),
-                    "block_id": metadata.get("block_id", 0),
-                    "full_text": document or "",
+                    "document_id": metadata.get("document_id", ""),
+                    "document_index": metadata.get("document_index", 0),
+                    "chunk_id": metadata.get("chunk_id", ""),
+                    "chunk_config_id": metadata.get("chunk_config_id", config.id),
+                    "chunk_index": metadata.get("chunk_index", 0),
+                    "token_count": metadata.get("token_count", 0),
+                    "text": result.document,
                     "source_url": metadata.get("source_url", ""),
-                    "distance": float(distance),
+                    "distance": result.distance,
                 }
             )
         return hits
+
+    def _get_vector_store(self, config: ChunkConfig) -> ChromaRepository:
+        if config.id not in self.vector_stores:
+            self.vector_stores[config.id] = ChromaRepository(
+                collection_name=config.collection_name
+            )
+        return self.vector_stores[config.id]

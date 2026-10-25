@@ -1,4 +1,4 @@
-"""Parse complaint blocks from a downloaded HTML page."""
+"""Parse canonical complaint documents from a downloaded HTML page."""
 
 import codecs
 import re
@@ -6,7 +6,9 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
-from app.models.complaint import Block, Message, ParsedPage
+from app.core.config import CANONICAL_DOCUMENT_SCHEMA_VERSION
+from app.models.document import CanonicalDocument, Message
+from app.models.source_page import SourcePage
 
 
 HR_PATTERN = re.compile(r"<hr\b[^>]*>", re.IGNORECASE)
@@ -51,18 +53,14 @@ def extract_clean_text(element) -> str:
     )
 
 
-# def find_content_cell(soup):
-#     cells = soup.find_all("td", attrs={"width": "600"})
-#     if not cells:
-#         return None
-#     return max(
-#         cells,
-#         key=lambda element: (
-#             len(element.find_all("hr")),
-#             len(element.find_all(["h2", "h6"])),
-#             len(element.get_text(strip=True)),
-#         ),
-#     )
+def message_element_without_nested_messages(element):
+    fragment = BeautifulSoup(str(element), "html.parser")
+    cloned_element = fragment.find(element.name)
+    if cloned_element is None:
+        return fragment
+    for nested_message in cloned_element.find_all(["h2", "h6"]):
+        nested_message.decompose()
+    return cloned_element
 
 def count_own_hr(cell):
     return sum(
@@ -81,7 +79,7 @@ def find_content_cell(soup):
     )
 
 
-def parse_html(content: bytes, content_type: str, source_url: str) -> ParsedPage:
+def parse_html(content: bytes, content_type: str, page: SourcePage) -> list[CanonicalDocument]:
     encoding = detect_encoding(content, content_type)
     soup = BeautifulSoup(content.decode(encoding, errors="replace"), "html.parser")
     content_cell = find_content_cell(soup)
@@ -93,20 +91,21 @@ def parse_html(content: bytes, content_type: str, source_url: str) -> ParsedPage
         for fragment in HR_PATTERN.split(content_cell.decode_contents())
         if fragment.strip()
     ]
-    blocks: list[Block] = []
+    documents: list[CanonicalDocument] = []
 
     for index, fragment in enumerate(fragments, start=1):
         fragment_soup = BeautifulSoup(fragment, "html.parser")
         messages: list[Message] = []
 
         for element in fragment_soup.find_all(["h2", "h6"]):
-            element_text = extract_clean_text(element)
+            own_element = message_element_without_nested_messages(element)
+            element_text = extract_clean_text(own_element)
             if not element_text:
                 continue
 
             answer_link = next(
                 (
-                    anchor for anchor in element.find_all("a", href=True)
+                    anchor for anchor in own_element.find_all("a", href=True)
                     if "válasza" in anchor.get_text(" ", strip=True).casefold()
                 ),
                 None,
@@ -116,7 +115,7 @@ def parse_html(content: bytes, content_type: str, source_url: str) -> ParsedPage
                     Message(
                         type="answer_reference",
                         text=answer_link.get_text(" ", strip=True),
-                        url=urljoin(source_url, answer_link["href"]),
+                        url=urljoin(page.url, answer_link["href"]),
                     )
                 )
                 continue
@@ -131,16 +130,24 @@ def parse_html(content: bytes, content_type: str, source_url: str) -> ParsedPage
             else:
                 messages.append(Message(type=message_type, text=element_text))
 
-        blocks.append(
-            Block(
-                block_id=index,
-                source_url=source_url,
+        text = "\n\n".join(
+            message.text
+            for message in messages
+            if message.type != "answer_reference"
+        )
+        if not text.strip():
+            continue
+        documents.append(
+            CanonicalDocument(
+                schema_version=CANONICAL_DOCUMENT_SCHEMA_VERSION,
+                document_id=f"complaint:{page.name}:{index:04d}",
+                source_page=page.name,
+                source_page_id=page.page_id,
+                document_index=index,
+                source_url=page.url,
                 messages=messages,
-                full_text="\n\n".join(
-                    message.text for message in messages
-                    if message.type != "answer_reference"
-                ),
+                text=text,
             )
         )
 
-    return ParsedPage(blocks=blocks, html_fragments=fragments)
+    return documents

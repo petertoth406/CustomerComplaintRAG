@@ -1,5 +1,7 @@
 fastapi
 uvicorn
 beautifulsoup4
+PyYAML==6.0.3
+tokenizers==0.22.1
 ollama==0.6.2
 chromadb-client==1.5.9

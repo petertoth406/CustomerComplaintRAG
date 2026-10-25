@@ -2,7 +2,8 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/app/.cache/huggingface
 
 WORKDIR /app
 
@@ -11,6 +12,9 @@ RUN python -m pip install --upgrade pip \
     && python -m pip install -r requirements.txt
 
 COPY app ./app
+COPY config ./config
+
+RUN python -c "from tokenizers import Tokenizer; from app.core.chunk_config import ChunkConfigRegistry; configs=ChunkConfigRegistry().all(); keys={(config.tokenizer_model, config.tokenizer_revision) for config in configs}; [Tokenizer.from_pretrained(model, revision=revision) for model, revision in keys]"
 
 RUN useradd --create-home --uid 10001 appuser \
     && mkdir -p /app/output \

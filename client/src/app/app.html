@@ -1,0 +1,156 @@
+<main class="page">
+  <header class="hero">
+    <p class="eyebrow">Customer Complaint RAG</p>
+    <h1>API konzol</h1>
+    <p class="description">
+      Egyszerű kezelőfelület a backend jelenlegi végpontjainak meghívásához.
+      A válaszok változtatás nélkül, JSON formátumban jelennek meg.
+    </p>
+  </header>
+
+  <section class="section" aria-labelledby="simple-endpoints">
+    <div class="section-heading">
+      <div>
+        <p class="section-label">Rendszer</p>
+        <h2 id="simple-endpoints">Egyszerű végpontok</h2>
+      </div>
+    </div>
+
+    <div class="card-grid two-columns">
+      <article class="card">
+        <div class="endpoint"><span class="method get">GET</span><code>/api/v1/status</code></div>
+        <p>Az API futási állapotának lekérdezése.</p>
+        <button type="button" (click)="getStatus()" [disabled]="isLoading('status')">
+          {{ isLoading('status') ? 'Hívás folyamatban…' : 'Állapot lekérése' }}
+        </button>
+        @if (responseFor('status'); as response) {
+          <div class="response" [class.error]="!response.ok">
+            <strong>HTTP {{ response.status }}</strong>
+            <pre>{{ response.body }}</pre>
+          </div>
+        }
+      </article>
+
+      <article class="card">
+        <div class="endpoint"><span class="method get">GET</span><code>/api/v1/statistics</code></div>
+        <p>A statisztikai végpont jelenleg várhatóan HTTP 501 választ ad.</p>
+        <button type="button" (click)="getStatistics()" [disabled]="isLoading('statistics')">
+          {{ isLoading('statistics') ? 'Hívás folyamatban…' : 'Statisztika lekérése' }}
+        </button>
+        @if (responseFor('statistics'); as response) {
+          <div class="response" [class.error]="!response.ok">
+            <strong>HTTP {{ response.status }}</strong>
+            <pre>{{ response.body }}</pre>
+          </div>
+        }
+      </article>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="preprocessing-endpoints">
+    <div class="section-heading">
+      <div>
+        <p class="section-label">Adat-előkészítés</p>
+        <h2 id="preprocessing-endpoints">Preprocessing végpontok</h2>
+      </div>
+      <p class="hint">Adj meg egy oldalazonosítót vagy egy tartományt. Ha mind üres, az API alapértelmezett oldala kerül feldolgozásra.</p>
+    </div>
+
+    <div class="parameters">
+      <label>
+        <span>Oldalazonosító</span>
+        <input type="number" min="1" name="pageId" [(ngModel)]="pageSelection.pageId" placeholder="például 35">
+      </label>
+      <label>
+        <span>Kezdőoldal</span>
+        <input type="number" min="1" name="startPage" [(ngModel)]="pageSelection.startPage" placeholder="például 1">
+      </label>
+      <label>
+        <span>Végoldal</span>
+        <input type="number" min="1" name="endPage" [(ngModel)]="pageSelection.endPage" placeholder="például 5">
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" name="timestamp" [(ngModel)]="timestamp">
+        <span>Időbélyeges kimenet</span>
+      </label>
+    </div>
+
+    <div class="card-grid">
+      <article class="card">
+        <div class="endpoint"><span class="method post">POST</span><code>/api/v1/preprocessing/run</code></div>
+        <p>Letöltés és feldolgozás egyetlen hívással.</p>
+        <button type="button" (click)="runPipeline()" [disabled]="isLoading('run')">
+          {{ isLoading('run') ? 'Hívás folyamatban…' : 'Pipeline indítása' }}
+        </button>
+        @if (responseFor('run'); as response) {
+          <div class="response" [class.error]="!response.ok"><strong>HTTP {{ response.status }}</strong><pre>{{ response.body }}</pre></div>
+        }
+      </article>
+
+      <article class="card">
+        <div class="endpoint"><span class="method post">POST</span><code>/api/v1/preprocessing/embeddings</code></div>
+        <p>Chunkok és embeddingek létrehozása a kiválasztott konfigurációkhoz.</p>
+        <fieldset>
+          <legend>Chunkolási konfigurációk</legend>
+          @for (config of chunkConfigs; track config.id) {
+            <label class="checkbox">
+              <input
+                type="checkbox"
+                [name]="'embedding-' + config.id"
+                [(ngModel)]="chunkSelections[config.id]"
+              >
+              <span>{{ config.label }}</span>
+            </label>
+          }
+          <button type="button" class="secondary" (click)="selectAllChunkConfigs()">
+            Mindegyik kijelölése
+          </button>
+        </fieldset>
+        <button
+          type="button"
+          (click)="createEmbeddings()"
+          [disabled]="isLoading('embeddings') || selectedChunkConfigIds().length === 0"
+        >
+          {{ isLoading('embeddings') ? 'Hívás folyamatban…' : 'Embedding indítása' }}
+        </button>
+        @if (responseFor('embeddings'); as response) {
+          <div class="response" [class.error]="!response.ok"><strong>HTTP {{ response.status }}</strong><pre>{{ response.body }}</pre></div>
+        }
+      </article>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="search-endpoint">
+    <div class="section-heading">
+      <div>
+        <p class="section-label">Szemantikus keresés</p>
+        <h2 id="search-endpoint">Keresési végpont</h2>
+      </div>
+    </div>
+
+    <article class="card search-card">
+      <div class="endpoint"><span class="method post">POST</span><code>/api/v1/search</code></div>
+      <label>
+        <span>Chunkolási konfiguráció</span>
+        <select name="searchChunkConfig" [(ngModel)]="searchChunkConfigId">
+          @for (config of chunkConfigs; track config.id) {
+            <option [value]="config.id">{{ config.label }}</option>
+          }
+        </select>
+      </label>
+      <label>
+        <span>Keresőkérdés</span>
+        <textarea name="query" rows="3" [(ngModel)]="query" placeholder="például: hibás mosógép garanciális javítása"></textarea>
+      </label>
+      <button type="button" (click)="search()" [disabled]="isLoading('search') || !query.trim()">
+        {{ isLoading('search') ? 'Keresés folyamatban…' : 'Keresés' }}
+      </button>
+      @if (responseFor('search'); as response) {
+        <div class="response" [class.error]="!response.ok">
+          <strong>HTTP {{ response.status }}</strong>
+          <pre>{{ response.body }}</pre>
+        </div>
+      }
+    </article>
+  </section>
+</main>
