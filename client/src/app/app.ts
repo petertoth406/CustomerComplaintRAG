@@ -22,6 +22,11 @@ interface PageSelection {
   endPage: number | null;
 }
 
+interface ChunkConfigOption {
+  id: string;
+  label: string;
+}
+
 @Component({
   selector: 'app-root',
   imports: [FormsModule],
@@ -33,6 +38,11 @@ export class App {
 
   readonly responses = signal<Partial<Record<RequestKey, ApiResponse>>>({});
   readonly loading = signal<Partial<Record<RequestKey, boolean>>>({});
+  readonly chunkConfigs: ChunkConfigOption[] = [
+    { id: 'structural_hr_v1', label: 'Strukturális (<hr>)' },
+    { id: 'fixed_500_100_v1', label: '500 token / 100 átfedés' },
+    { id: 'fixed_1000_200_v1', label: '1000 token / 200 átfedés' },
+  ];
 
   pageSelection: PageSelection = {
     pageId: null,
@@ -41,6 +51,12 @@ export class App {
   };
   timestamp = false;
   query = '';
+  chunkSelections: Record<string, boolean> = {
+    structural_hr_v1: true,
+    fixed_500_100_v1: true,
+    fixed_1000_200_v1: true,
+  };
+  searchChunkConfigId = 'structural_hr_v1';
 
   getStatus(): void {
     void this.send('status', 'GET', '/api/v1/status');
@@ -62,7 +78,10 @@ export class App {
       'embeddings',
       'POST',
       '/api/v1/preprocessing/embeddings',
-      this.selectionPayload(),
+      {
+        ...this.selectionPayload(),
+        chunk_config_ids: this.selectedChunkConfigIds(),
+      },
     );
   }
 
@@ -71,7 +90,22 @@ export class App {
     if (!query) {
       return;
     }
-    void this.send('search', 'POST', '/api/v1/search', { query });
+    void this.send('search', 'POST', '/api/v1/search', {
+      query,
+      chunk_config_id: this.searchChunkConfigId,
+    });
+  }
+
+  selectedChunkConfigIds(): string[] {
+    return this.chunkConfigs
+      .filter((config) => this.chunkSelections[config.id])
+      .map((config) => config.id);
+  }
+
+  selectAllChunkConfigs(): void {
+    this.chunkSelections = Object.fromEntries(
+      this.chunkConfigs.map((config) => [config.id, true]),
+    );
   }
 
   responseFor(key: RequestKey): ApiResponse | undefined {

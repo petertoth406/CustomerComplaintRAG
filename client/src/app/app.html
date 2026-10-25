@@ -89,8 +89,28 @@
 
       <article class="card">
         <div class="endpoint"><span class="method post">POST</span><code>/api/v1/preprocessing/embeddings</code></div>
-        <p>Embeddingek létrehozása a kanonikus dokumentumokból.</p>
-        <button type="button" (click)="createEmbeddings()" [disabled]="isLoading('embeddings')">
+        <p>Chunkok és embeddingek létrehozása a kiválasztott konfigurációkhoz.</p>
+        <fieldset>
+          <legend>Chunkolási konfigurációk</legend>
+          @for (config of chunkConfigs; track config.id) {
+            <label class="checkbox">
+              <input
+                type="checkbox"
+                [name]="'embedding-' + config.id"
+                [(ngModel)]="chunkSelections[config.id]"
+              >
+              <span>{{ config.label }}</span>
+            </label>
+          }
+          <button type="button" class="secondary" (click)="selectAllChunkConfigs()">
+            Mindegyik kijelölése
+          </button>
+        </fieldset>
+        <button
+          type="button"
+          (click)="createEmbeddings()"
+          [disabled]="isLoading('embeddings') || selectedChunkConfigIds().length === 0"
+        >
           {{ isLoading('embeddings') ? 'Hívás folyamatban…' : 'Embedding indítása' }}
         </button>
         @if (responseFor('embeddings'); as response) {
@@ -110,6 +130,14 @@
 
     <article class="card search-card">
       <div class="endpoint"><span class="method post">POST</span><code>/api/v1/search</code></div>
+      <label>
+        <span>Chunkolási konfiguráció</span>
+        <select name="searchChunkConfig" [(ngModel)]="searchChunkConfigId">
+          @for (config of chunkConfigs; track config.id) {
+            <option [value]="config.id">{{ config.label }}</option>
+          }
+        </select>
+      </label>
       <label>
         <span>Keresőkérdés</span>
         <textarea name="query" rows="3" [(ngModel)]="query" placeholder="például: hibás mosógép garanciális javítása"></textarea>

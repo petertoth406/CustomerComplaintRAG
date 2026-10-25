@@ -5,7 +5,7 @@ from typing import Any
 
 import chromadb
 
-from app.core.config import CHROMA_COLLECTION, CHROMA_HOST, CHROMA_PORT
+from app.core.config import CHROMA_HOST, CHROMA_PORT
 from app.services.semantic_backend import SemanticBackendError
 
 
@@ -29,9 +29,9 @@ class VectorSearchResult:
 class ChromaRepository:
     def __init__(
         self,
+        collection_name: str,
         collection: Any | None = None,
         chroma_client: Any | None = None,
-        collection_name: str = CHROMA_COLLECTION,
     ) -> None:
         if collection is None:
             try:

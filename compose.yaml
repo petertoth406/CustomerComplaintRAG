@@ -25,9 +25,9 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       OLLAMA_EMBEDDING_MODEL: "${OLLAMA_EMBEDDING_MODEL:-bge-m3}"
       EMBEDDING_BATCH_SIZE: "${EMBEDDING_BATCH_SIZE:-32}"
+      DEFAULT_CHUNK_CONFIG_ID: "${DEFAULT_CHUNK_CONFIG_ID:-structural_hr_v1}"
       CHROMA_HOST: chromadb
       CHROMA_PORT: "8000"
-      CHROMA_COLLECTION: "${CHROMA_COLLECTION:-customer_complaints}"
     volumes:
       - ./:/workspace
     depends_on:
@@ -57,7 +57,7 @@ services:
     image: ollama/ollama:0.34.1
     environment:
       OLLAMA_HOST: http://ollama:11434
-      OLLAMA_EMBEDDING_MODEL: "${OLLAMA_EMBEDDING_MODEL:-qwen3-embedding:0.6b}"
+      OLLAMA_EMBEDDING_MODEL: "${OLLAMA_EMBEDDING_MODEL:-bge-m3}"
     entrypoint: ["/bin/sh", "-c"]
     command:
       - 'ollama pull "$${OLLAMA_EMBEDDING_MODEL}"'

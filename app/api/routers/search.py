@@ -17,7 +17,7 @@ Service = Annotated[SemanticSearchService, Depends(get_semantic_service)]
 @router.post("", response_model=SearchResponse)
 def search(request: SearchRequest, service: Service) -> SearchResponse:
     try:
-        hits = service.search(request.query)
+        hits = service.search(request.query, request.chunk_config_id)
     except ValueError as error:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -30,5 +30,6 @@ def search(request: SearchRequest, service: Service) -> SearchResponse:
         ) from error
     return SearchResponse(
         query=request.query,
+        chunk_config_id=request.chunk_config_id,
         results=[SearchHit(**hit) for hit in hits],
     )

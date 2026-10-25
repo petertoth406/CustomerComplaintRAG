@@ -140,7 +140,10 @@ def create_embeddings(
     service: SemanticService,
 ) -> EmbeddingResponse:
     try:
-        summaries = service.embed_pages(request.source_pages())
+        summaries = service.embed_pages(
+            request.source_pages(),
+            request.chunk_config_ids,
+        )
     except FileNotFoundError as error:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

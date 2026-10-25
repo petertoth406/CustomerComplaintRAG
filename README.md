@@ -18,7 +18,9 @@ docker compose up --build -d
 docker compose ps
 ```
 
-Az első indítás tovább tarthat, mert a rendszer letölti az embedding modellt. Az API csak ennek sikeres befejezése után indul el.
+Az első build és indítás tovább tarthat, mert a rendszer letölti a BGE-M3
+tokenizálót és az embedding modellt. Az API csak ezek sikeres előkészítése után
+indul el.
 
 ### Elérhető felületek
 
@@ -61,6 +63,10 @@ sima `output/` tartalmából dolgozhat.
 A `/run` oldalanként egy `source.json` metaadatfájlt és egy kanonikus
 dokumentumokat tartalmazó `documents.jsonl` fájlt hoz létre.
 
+Az embedding végpont a kiválasztott chunkkonfigurációkhoz külön JSONL-fájlokat
+hoz létre az `output/levelekN/chunks/` könyvtárban, és konfigurációnként külön
+ChromaDB collectiont tölt fel.
+
 Egy rekord alakja:
 
 ```json
@@ -87,9 +93,21 @@ A beállításokat a `.env.example` alapján létrehozott, verziókezelésen kí
 | `CHROMA_EXPOSED_PORT` | `8001` | A ChromaDB host portja |
 | `DEV_MODE` | `false` | Engedélyezi a fejlesztői `/download` és `/process` végpontokat |
 | `OLLAMA_EMBEDDING_MODEL` | `bge-m3` | A használt embedding modell |
-| `EMBEDDING_BATCH_SIZE` | `32` | Egy Ollama-kérésben embeddingelt dokumentumok száma |
-| `CHROMA_COLLECTION` | `customer_complaints` | A ChromaDB collection neve |
+| `EMBEDDING_BATCH_SIZE` | `32` | Egy Ollama-kérésben embeddingelt chunkok száma |
+| `DEFAULT_CHUNK_CONFIG_ID` | `structural_hr_v1` | Alapértelmezett chunkkonfiguráció |
 | `SOURCE_INSECURE` | `false` | `true` értéknél kikapcsolja a forrásoldal TLS-ellenőrzését |
+
+A verziózott chunkkonfigurációk a `config/chunking/` könyvtárban találhatók:
+
+| Konfiguráció | Stratégia | Collection |
+| --- | --- | --- |
+| `structural_hr_v1` | Egy chunk minden `<hr>` mentén elkülönített dokumentumból | `complaints_structural_hr_v1` |
+| `fixed_500_100_v1` | 500 token, 100 token átfedés | `complaints_fixed_500_100_v1` |
+| `fixed_1000_200_v1` | 1000 token, 200 token átfedés | `complaints_fixed_1000_200_v1` |
+
+A tokenhatárokat a konfigurációkban rögzített `BAAI/bge-m3` tokenizer adja.
+A tokenizáló modell és annak pontos revision azonosítója minden YAML-fájlban
+szerepel.
 
 Modellváltás után töltsd le az új modellt, majd indítsd újra a szolgáltatásokat:
 
@@ -119,25 +137,37 @@ könyvtárból történik. Egy oldal embeddingelése:
 POST /api/v1/preprocessing/embeddings
 Content-Type: application/json
 
-{"page_id": 35}
+{
+  "page_id": 35,
+  "chunk_config_ids": [
+    "structural_hr_v1",
+    "fixed_500_100_v1",
+    "fixed_1000_200_v1"
+  ]
+}
 ```
 
-Oldaltartományhoz `start_page` és `end_page` is megadható. A rendszer a nem üres
-`text` mezőket embeddingeli, és a stabil `document_id` azonosítókkal tölti őket
-ChromaDB-be, ezért az ismételt futtatás nem duplikál.
+Oldaltartományhoz `start_page` és `end_page` is megadható. Egyetlen módszerhez
+csak annak konfigurációazonosítóját kell elküldeni. A rendszer a kiválasztott
+konfigurációk chunkjait stabil `chunk_id` azonosítókkal tölti a megfelelő
+ChromaDB collectionbe, ezért az ismételt futtatás nem duplikál.
 
-A szemantikus keresés fixen legfeljebb öt dokumentumot ad vissza:
+A szemantikus keresés fixen legfeljebb öt chunkot ad vissza:
 
 ```http
 POST /api/v1/search
 Content-Type: application/json
 
-{"query": "hibás mosógép garanciális javítása"}
+{
+  "query": "hibás mosógép garanciális javítása",
+  "chunk_config_id": "fixed_500_100_v1"
+}
 ```
 
-Minden találat tartalmazza a rangot, a `page_id`, `document_id` és
-`document_index` értéket, a `text` szöveget, a forrás URL-jét és a ChromaDB
-által adott távolságot.
+Minden találat tartalmazza a rangot, a dokumentum- és chunkazonosítókat, a
+chunkkonfigurációt, a tokenszámot, a `text` szöveget, a forrás URL-jét és a
+ChromaDB által adott távolságot. A keresés mindig pontosan egy konfigurációhoz
+tartozó collectionben fut.
 
 Az Angular kliens egyszerű API-konzolt biztosít a meglévő státusz-,
 statisztikai, előfeldolgozási, embedding- és keresési végpontokhoz. Dockeres

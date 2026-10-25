@@ -8,9 +8,11 @@ from hashlib import sha256
 from pathlib import Path
 
 from app.core.config import OUTPUT_DIR
+from app.models.chunk import Chunk
 from app.models.document import CanonicalDocument
 from app.models.source_page import DownloadedPage, SourcePage
 from app.schemas.canonical_document import CanonicalDocumentRecord
+from app.schemas.chunking import ChunkRecord
 
 
 class FileRepository:
@@ -111,3 +113,23 @@ class FileRepository:
             content += "\n"
         documents_path.write_text(content, encoding="utf-8")
         return documents_path
+
+    def save_chunks(self, page: SourcePage, chunk_config_id: str, chunks: list[Chunk]) -> Path:
+        chunks_dir = self.page_dir(page) / "chunks"
+        chunks_dir.mkdir(parents=True, exist_ok=True)
+        chunks_path = chunks_dir / f"{chunk_config_id}.jsonl"
+        serialized_chunks = []
+        for chunk in chunks:
+            validated_chunk = ChunkRecord.model_validate(asdict(chunk))
+            serialized_chunks.append(
+                json.dumps(
+                    validated_chunk.model_dump(mode="json"),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            )
+        content = "\n".join(serialized_chunks)
+        if content:
+            content += "\n"
+        chunks_path.write_text(content, encoding="utf-8")
+        return chunks_path
