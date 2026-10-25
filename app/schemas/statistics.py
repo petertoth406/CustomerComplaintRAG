@@ -36,6 +36,29 @@ class ContentCounts(BaseModel):
     answered_document_count: int | None = Field(default=None, ge=0)
 
 
+class LengthDistribution(BaseModel):
+    count: int = Field(ge=0)
+    total: int = Field(ge=0)
+    minimum: int | None = Field(default=None, ge=0)
+    maximum: int | None = Field(default=None, ge=0)
+    average: float | None = Field(default=None, ge=0)
+    median: float | None = Field(default=None, ge=0)
+    percentile_90: int | None = Field(default=None, ge=0)
+    percentile_95: int | None = Field(default=None, ge=0)
+
+
+class TextLengthStatistics(BaseModel):
+    characters: LengthDistribution
+    words: LengthDistribution
+    tokens: LengthDistribution | None = None
+
+
+class ContentLengthStatistics(BaseModel):
+    documents: TextLengthStatistics
+    complaints: TextLengthStatistics
+    inline_answers: TextLengthStatistics
+
+
 class PageStatistics(BaseModel):
     page: str = Field(pattern=r"^levelek(?:[1-9]\d*)?$")
     page_id: int | None = Field(default=None, ge=1)
@@ -49,6 +72,7 @@ class PageStatistics(BaseModel):
         "invalid",
     ]
     content: ContentCounts
+    lengths: ContentLengthStatistics | None = None
 
 
 class DatasetSummary(BaseModel):
@@ -61,11 +85,19 @@ class DatasetSummary(BaseModel):
     not_processed_page_count: int = Field(ge=0)
     invalid_documents_file_count: int = Field(ge=0)
     content: ContentCounts
+    lengths: ContentLengthStatistics
+
+
+class TokenizerDescriptor(BaseModel):
+    model: str = Field(min_length=1)
+    revision: str = Field(min_length=1)
 
 
 class StatisticsResponse(BaseModel):
     generated_at: datetime
     statistics_schema_version: StatisticsSchemaVersion
+    tokens_included: bool
+    tokenizer: TokenizerDescriptor | None = None
     dataset: DatasetDescriptor
     summary: DatasetSummary
     pages: list[PageStatistics]
