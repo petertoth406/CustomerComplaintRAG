@@ -33,7 +33,7 @@
 
       <article class="card">
         <div class="endpoint"><span class="method get">GET</span><code>/api/v1/statistics</code></div>
-        <p>A statisztikai végpont jelenleg várhatóan HTTP 501 választ ad.</p>
+        <p>Az output adathalmazban felismert forrásoldalak és számozási hézagok lekérése.</p>
         <button type="button" (click)="getStatistics()" [disabled]="isLoading('statistics')">
           {{ isLoading('statistics') ? 'Hívás folyamatban…' : 'Statisztika lekérése' }}
         </button>

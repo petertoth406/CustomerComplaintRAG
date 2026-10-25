@@ -1,14 +1,23 @@
-"""Controller for future dataset statistics."""
+"""Controller for statistics derived from generated datasets."""
 
-from fastapi import APIRouter, HTTPException, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends
+
+from app.schemas.statistics import StatisticsDiscoveryResponse
+from app.services.statistics_service import StatisticsService
 
 
 router = APIRouter(prefix="/statistics", tags=["statistics"])
 
 
-@router.get("", status_code=status.HTTP_501_NOT_IMPLEMENTED)
-def get_statistics() -> None:
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="A statisztikák számítása még nincs bekötve.",
-    )
+def get_service() -> StatisticsService:
+    return StatisticsService()
+
+
+Service = Annotated[StatisticsService, Depends(get_service)]
+
+
+@router.get("", response_model=StatisticsDiscoveryResponse)
+def get_statistics(service: Service) -> StatisticsDiscoveryResponse:
+    return service.discover_dataset()
