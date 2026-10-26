@@ -28,6 +28,13 @@ export const routes: Routes = [
             (module) => module.StatisticsPages,
           ),
       },
+      {
+        path: 'chunks',
+        loadComponent: () =>
+          import('./statistics/statistics-chunks').then(
+            (module) => module.StatisticsChunks,
+          ),
+      },
     ],
   },
   { path: '**', redirectTo: '' },

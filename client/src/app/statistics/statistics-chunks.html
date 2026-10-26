@@ -1,0 +1,204 @@
+<section class="stats-toolbar" aria-label="Chunkstatisztikai lekérdezés beállításai">
+  <div>
+    <strong>Feldolgozási változatok</strong>
+    <span>A konfigurációk és a forrásoldalak chunklefedettségének összehasonlítása.</span>
+  </div>
+  <div class="stats-actions">
+    <label class="stats-switch">
+      <input type="checkbox" [ngModel]="includeTokens()" (ngModelChange)="includeTokens.set($event)">
+      <span>Dokumentum-tokenstatisztika</span>
+    </label>
+    <button type="button" (click)="load()" [disabled]="loading()">
+      {{ loading() ? 'Betöltés…' : 'Frissítés' }}
+    </button>
+  </div>
+</section>
+
+@if (error(); as message) {
+  <div class="stats-alert error" role="alert">{{ message }}</div>
+}
+
+@if (loading() && !statistics()) {
+  <div class="stats-loading">A chunkstatisztikák betöltése folyamatban…</div>
+} @else if (statistics(); as data) {
+  <section class="stats-meta">
+    <span><strong>Adathalmaz:</strong> {{ data.dataset.dataset_id }}</span>
+    <span><strong>Generálva:</strong> {{ data.generated_at | date:'yyyy. MM. dd. HH:mm:ss' }}</span>
+    <span><strong>Sémaverzió:</strong> {{ data.statistics_schema_version }}</span>
+    <span class="stats-meta-note">A chunkok tokenszámai a mentett rekordokból származnak, nem igényelnek újratokenizálást.</span>
+  </section>
+
+  @if (!hasChunkStatistics(data)) {
+    <div class="stats-alert warning" role="status">
+      A futó backend még nem szolgáltat chunkstatisztikákat. Indítsd újra az API-t
+      a statisztikai séma 1.1-es verziójával, majd nyomd meg a Frissítés gombot.
+    </div>
+  }
+
+  <section class="chunk-config-grid" aria-label="Chunkolási konfigurációk">
+    @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+      @if (summaryFor(data, configuration.chunk_config_id); as summary) {
+        <button
+          type="button"
+          class="chunk-config-card"
+          [class.selected]="selectedConfigId() === configuration.chunk_config_id"
+          (click)="selectConfiguration(configuration.chunk_config_id)"
+        >
+          <span class="chunk-card-heading">
+            <strong>{{ configurationLabel(configuration) }}</strong>
+            <span class="chunk-status" [attr.data-status]="summary.status">{{ summary.status === 'complete' ? 'Teljes' : summary.status === 'partial' ? 'Részleges' : summary.status === 'invalid' ? 'Hibás' : 'Hiányzik' }}</span>
+          </span>
+          <small>{{ configurationDescription(configuration) }}</small>
+          <span class="chunk-card-metrics">
+            <span><b>{{ summary.chunk_count | number }}</b> chunk</span>
+            <span><b>{{ summary.document_count | number }}</b> / {{ (summary.document_count + summary.missing_document_count) | number }} dokumentum</span>
+            <span><b>{{ summary.complete_page_count }}</b> / {{ summary.page_count }} teljes oldal</span>
+          </span>
+        </button>
+      }
+    }
+  </section>
+
+  <section class="stats-panel">
+    <div class="stats-panel-heading">
+      <div>
+        <p class="stats-eyebrow">Összehasonlítás</p>
+        <h2>Konfigurációk főbb mutatói</h2>
+      </div>
+      <span class="stats-note">A tokenhosszak a chunkrekordok <code>token_count</code> mezőiből készülnek.</span>
+    </div>
+    <div class="stats-table-wrap">
+      <table class="stats-table chunk-comparison-table">
+        <thead>
+          <tr>
+            <th>Mérőszám</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              <th>{{ configurationLabel(configuration) }}</th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          <tr><th>Teljes oldalak</th>@for (configuration of data.chunk_configurations; track configuration.chunk_config_id) { @if (summaryFor(data, configuration.chunk_config_id); as value) { <td>{{ value.complete_page_count }} / {{ value.page_count }}</td> } }</tr>
+          <tr><th>Részleges oldalak</th>@for (configuration of data.chunk_configurations; track configuration.chunk_config_id) { @if (summaryFor(data, configuration.chunk_config_id); as value) { <td>{{ value.partial_page_count }}</td> } }</tr>
+          <tr><th>Hiányzó oldalak</th>@for (configuration of data.chunk_configurations; track configuration.chunk_config_id) { @if (summaryFor(data, configuration.chunk_config_id); as value) { <td>{{ value.missing_page_count }}</td> } }</tr>
+          <tr><th>Hibás / nem ellenőrizhető</th>@for (configuration of data.chunk_configurations; track configuration.chunk_config_id) { @if (summaryFor(data, configuration.chunk_config_id); as value) { <td>{{ value.invalid_page_count }} / {{ value.unverifiable_page_count }}</td> } }</tr>
+          <tr><th>Lefedett dokumentum</th>@for (configuration of data.chunk_configurations; track configuration.chunk_config_id) { @if (summaryFor(data, configuration.chunk_config_id); as value) { <td>{{ value.document_count | number }}</td> } }</tr>
+          <tr><th>Chunk nélküli dokumentum</th>@for (configuration of data.chunk_configurations; track configuration.chunk_config_id) { @if (summaryFor(data, configuration.chunk_config_id); as value) { <td>{{ value.missing_document_count | number }}</td> } }</tr>
+          <tr><th>Chunkok száma</th>@for (configuration of data.chunk_configurations; track configuration.chunk_config_id) { @if (summaryFor(data, configuration.chunk_config_id); as value) { <td>{{ value.chunk_count | number }}</td> } }</tr>
+          <tr><th>Átlagos tokenhossz</th>@for (configuration of data.chunk_configurations; track configuration.chunk_config_id) { @if (summaryFor(data, configuration.chunk_config_id); as value) { <td>{{ value.token_lengths.average === null ? '—' : (value.token_lengths.average | number:'1.0-2') }}</td> } }</tr>
+          <tr><th>Medián tokenhossz</th>@for (configuration of data.chunk_configurations; track configuration.chunk_config_id) { @if (summaryFor(data, configuration.chunk_config_id); as value) { <td>{{ value.token_lengths.median === null ? '—' : (value.token_lengths.median | number:'1.0-2') }}</td> } }</tr>
+          <tr><th>P90 / P95 token</th>@for (configuration of data.chunk_configurations; track configuration.chunk_config_id) { @if (summaryFor(data, configuration.chunk_config_id); as value) { <td>{{ value.token_lengths.percentile_90 ?? '—' }} / {{ value.token_lengths.percentile_95 ?? '—' }}</td> } }</tr>
+          <tr><th>Maximális tokenhossz</th>@for (configuration of data.chunk_configurations; track configuration.chunk_config_id) { @if (summaryFor(data, configuration.chunk_config_id); as value) { <td>{{ value.token_lengths.maximum ?? '—' }}</td> } }</tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="stats-panel">
+    <div class="stats-panel-heading chunk-page-heading">
+      <div>
+        <p class="stats-eyebrow">Oldallefedettség</p>
+        <h2>Chunkolási állapot forrásoldalanként</h2>
+      </div>
+      <div class="chunk-filters">
+        <label>
+          <span>Szűrés konfiguráció szerint</span>
+          <select [ngModel]="selectedConfigId()" (ngModelChange)="$event === '' ? showAllConfigurations() : selectConfiguration($event)">
+            <option value="">Minden konfiguráció</option>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              <option [value]="configuration.chunk_config_id">{{ configurationLabel(configuration) }}</option>
+            }
+          </select>
+        </label>
+        <label>
+          <span>Állapot</span>
+          <select [ngModel]="statusFilter()" (ngModelChange)="statusFilter.set($event)">
+            <option value="all">Minden állapot</option>
+            <option value="complete">Teljes</option>
+            <option value="partial">Részleges</option>
+            <option value="missing">Hiányzik</option>
+            <option value="invalid">Hibás</option>
+            <option value="unverifiable">Nem ellenőrizhető</option>
+          </select>
+        </label>
+      </div>
+    </div>
+    <div class="stats-table-wrap">
+      <table class="stats-table chunk-page-table">
+        <thead>
+          <tr>
+            <th>Oldal</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              <th>{{ configurationLabel(configuration) }}</th>
+            }
+            <th><span class="visually-hidden">Művelet</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (page of filteredPages(); track page.page) {
+            <tr class="selectable-row" tabindex="0" (click)="openPage(page)" (keydown.enter)="openPage(page)">
+              <th>{{ page.page }}</th>
+              @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+                @if (pageChunkStatistics(page, configuration.chunk_config_id); as value) {
+                  <td>
+                    <button class="chunk-cell" type="button" (click)="$event.stopPropagation(); openPage(page, configuration.chunk_config_id)">
+                      <span class="chunk-status" [attr.data-status]="value.status">{{ statusLabel(value.status) }}</span>
+                      <small>{{ value.chunk_count }} chunk · {{ value.missing_document_count ?? '—' }} hiányzó</small>
+                    </button>
+                  </td>
+                }
+              }
+              <td><button class="table-action" type="button" (click)="$event.stopPropagation(); openPage(page)">Részletek</button></td>
+            </tr>
+          } @empty {
+            <tr><td class="empty-table" [attr.colspan]="data.chunk_configurations.length + 2">Nincs a szűrésnek megfelelő forrásoldal.</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  @if (selectedPage(); as page) {
+    <div class="modal-backdrop" role="presentation" (click)="closeModal()">
+      <section class="stats-modal" role="dialog" aria-modal="true" [attr.aria-labelledby]="'chunk-modal-' + page.page" (click)="$event.stopPropagation()">
+        <header class="modal-header">
+          <div><p class="stats-eyebrow">Chunkolási részletek</p><h2 [id]="'chunk-modal-' + page.page">{{ page.page }}</h2></div>
+          <button class="modal-close" type="button" aria-label="Ablak bezárása" (click)="closeModal()">×</button>
+        </header>
+        <div class="modal-content">
+          <div class="chunk-modal-tabs" role="tablist" aria-label="Chunkolási konfigurációk">
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              <button type="button" role="tab" [attr.aria-selected]="modalConfigId() === configuration.chunk_config_id" [class.active]="modalConfigId() === configuration.chunk_config_id" (click)="modalConfigId.set(configuration.chunk_config_id)">{{ configurationLabel(configuration) }}</button>
+            }
+          </div>
+          @if (modalConfiguration(data); as configuration) {
+            @if (pageChunkStatistics(page, configuration.chunk_config_id); as value) {
+              <div class="chunk-detail-header">
+                <div><span>Állapot</span><strong><span class="chunk-status" [attr.data-status]="value.status">{{ statusLabel(value.status) }}</span></strong></div>
+                <div><span>Dokumentum</span><strong>{{ value.document_count | number }}</strong></div>
+                <div><span>Hiányzó dokumentum</span><strong>{{ value.missing_document_count ?? 'Nem ellenőrizhető' }}</strong></div>
+                <div><span>Chunk</span><strong>{{ value.chunk_count | number }}</strong></div>
+              </div>
+              <div class="chunk-config-definition">
+                <p>{{ configurationDescription(configuration) }}</p>
+                <dl>
+                  <div><dt>Azonosító</dt><dd>{{ configuration.chunk_config_id }}</dd></div>
+                  <div><dt>Verzió</dt><dd>v{{ configuration.version ?? '—' }}</dd></div>
+                  <div><dt>Tokenizer</dt><dd>{{ configuration.tokenizer_model }}</dd></div>
+                  <div><dt>Collection</dt><dd>{{ configuration.collection_name }}</dd></div>
+                </dl>
+              </div>
+              <h3>Chunkok tokenhossz-eloszlása</h3>
+              <div class="stats-table-wrap">
+                <table class="stats-table compact">
+                  <thead><tr><th>Darab</th><th>Összesen</th><th>Minimum</th><th>Átlag</th><th>Medián</th><th>P90</th><th>P95</th><th>Maximum</th></tr></thead>
+                  <tbody><tr><td>{{ value.token_lengths.count | number }}</td><td>{{ value.token_lengths.total | number }}</td><td>{{ value.token_lengths.minimum ?? '—' }}</td><td>{{ value.token_lengths.average === null ? '—' : (value.token_lengths.average | number:'1.0-2') }}</td><td>{{ value.token_lengths.median === null ? '—' : (value.token_lengths.median | number:'1.0-2') }}</td><td>{{ value.token_lengths.percentile_90 ?? '—' }}</td><td>{{ value.token_lengths.percentile_95 ?? '—' }}</td><td>{{ value.token_lengths.maximum ?? '—' }}</td></tr></tbody>
+                </table>
+              </div>
+            }
+          }
+        </div>
+      </section>
+    </div>
+  }
+}

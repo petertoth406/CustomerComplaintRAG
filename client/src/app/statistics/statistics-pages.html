@@ -151,6 +151,33 @@
             />
           </div>
         }
+
+        @if (page.chunk_statistics?.length) {
+          <div class="modal-section-heading chunk-modal-section-heading">
+            <h3>Feldolgozási változatok</h3>
+            <p>A chunklefedettség és a mentett chunkrekordok tokenszámadatai ezen a forrásoldalon.</p>
+          </div>
+          <div class="page-chunk-summary-grid">
+            @for (chunk of page.chunk_statistics; track chunk.chunk_config_id) {
+              @if (chunkConfiguration(chunk.chunk_config_id); as configuration) {
+                <article class="page-chunk-summary">
+                  <div class="chunk-card-heading">
+                    <strong>{{ chunkConfigurationLabel(configuration) }}</strong>
+                    <span class="chunk-status" [attr.data-status]="chunk.status">{{ chunkStatusLabel(chunk.status) }}</span>
+                  </div>
+                  <dl>
+                    <div><dt>Dokumentum</dt><dd>{{ chunk.document_count | number }}</dd></div>
+                    <div><dt>Hiányzó</dt><dd>{{ chunk.missing_document_count ?? '—' }}</dd></div>
+                    <div><dt>Chunk</dt><dd>{{ chunk.chunk_count | number }}</dd></div>
+                    <div><dt>Átlag token</dt><dd>{{ chunk.token_lengths.average === null ? '—' : (chunk.token_lengths.average | number:'1.0-2') }}</dd></div>
+                    <div><dt>P95 token</dt><dd>{{ chunk.token_lengths.percentile_95 ?? '—' }}</dd></div>
+                    <div><dt>Maximum</dt><dd>{{ chunk.token_lengths.maximum ?? '—' }}</dd></div>
+                  </dl>
+                </article>
+              }
+            }
+          </div>
+        }
       </div>
     </section>
   </div>

@@ -15,7 +15,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -160,6 +161,104 @@ input {
 
 .stats-meta strong {
   color: #334155;
+}
+
+.stats-meta-note {
+  flex-basis: 100%;
+  font-size: 0.7rem;
+}
+
+.chunk-config-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.chunk-config-card {
+  display: flex;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #dbe2ea;
+  border-radius: 0.85rem;
+  flex-direction: column;
+  gap: 0.65rem;
+  background: #fff;
+  box-shadow: 0 0.6rem 2rem rgb(15 23 42 / 5%);
+  color: #334155;
+  cursor: pointer;
+  text-align: left;
+}
+
+.chunk-config-card:hover,
+.chunk-config-card:focus-visible,
+.chunk-config-card.selected {
+  border-color: #60a5fa;
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 10%);
+}
+
+.chunk-config-card.selected {
+  background: #eff6ff;
+}
+
+.chunk-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.chunk-config-card small {
+  min-height: 2.2rem;
+  color: #64748b;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.chunk-card-metrics {
+  display: grid;
+  gap: 0.25rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 0.72rem;
+}
+
+.chunk-card-metrics b {
+  color: #0f172a;
+}
+
+.chunk-status {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.25rem 0.45rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 0.66rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.chunk-status[data-status="complete"] {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.chunk-status[data-status="partial"] {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.chunk-status[data-status="invalid"] {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.chunk-status[data-status="unverifiable"] {
+  background: #dbeafe;
+  color: #1e40af;
 }
 
 .stats-kpis {
@@ -357,6 +456,66 @@ input {
   font-weight: 750;
 }
 
+.chunk-comparison-table th:not(:first-child),
+.chunk-comparison-table td:not(:first-child) {
+  width: 25%;
+  text-align: center;
+}
+
+.chunk-page-heading {
+  align-items: center;
+}
+
+.chunk-filters {
+  display: flex;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.chunk-filters label {
+  display: grid;
+  gap: 0.3rem;
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.chunk-filters select {
+  min-width: 10rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.45rem;
+  background: #fff;
+  color: #334155;
+  font-size: 0.76rem;
+}
+
+.chunk-page-table td:not(:first-child) {
+  text-align: center;
+}
+
+.chunk-cell {
+  display: inline-grid;
+  justify-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.chunk-cell small {
+  color: #64748b;
+  font-size: 0.65rem;
+}
+
+.empty-table {
+  padding: 2rem !important;
+  color: #64748b;
+  text-align: center !important;
+}
+
 .selectable-row {
   cursor: pointer;
 }
@@ -405,6 +564,12 @@ input {
   border: 1px solid #fecaca;
   background: #fef2f2;
   color: #991b1b;
+}
+
+.stats-alert.warning {
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
 }
 
 .stats-loading {
@@ -464,6 +629,112 @@ input {
 
 .modal-content {
   padding: 1.5rem;
+}
+
+.chunk-modal-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.chunk-modal-tabs button {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.chunk-modal-tabs button.active {
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.chunk-detail-header {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.chunk-detail-header > div {
+  padding: 0.85rem;
+  border-radius: 0.65rem;
+  background: #f8fafc;
+}
+
+.chunk-detail-header span,
+.chunk-detail-header strong {
+  display: block;
+}
+
+.chunk-detail-header > div > span {
+  margin-bottom: 0.3rem;
+  color: #64748b;
+  font-size: 0.68rem;
+}
+
+.chunk-config-definition {
+  margin: 1rem 0 1.5rem;
+  padding: 1rem;
+  border: 1px solid #dbeafe;
+  border-radius: 0.65rem;
+  background: #eff6ff;
+}
+
+.chunk-config-definition p {
+  margin: 0 0 0.75rem;
+  color: #334155;
+  font-size: 0.78rem;
+}
+
+.chunk-config-definition dl,
+.page-chunk-summary dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.chunk-config-definition dt,
+.page-chunk-summary dt {
+  color: #64748b;
+  font-size: 0.65rem;
+}
+
+.chunk-config-definition dd,
+.page-chunk-summary dd {
+  margin: 0.2rem 0 0;
+  color: #0f172a;
+  font-size: 0.75rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.chunk-modal-section-heading {
+  margin-top: 1.75rem;
+}
+
+.page-chunk-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.page-chunk-summary {
+  padding: 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.65rem;
+}
+
+.page-chunk-summary dl {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0.75rem;
 }
 
 .modal-section-heading p {
@@ -566,6 +837,21 @@ input {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .chunk-config-grid,
+  .page-chunk-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chunk-filters,
+  .chunk-detail-header {
+    align-items: stretch;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .chunk-filters {
+    display: grid;
+  }
+
   .detail-meta,
   .detail-counts {
     grid-template-columns: 1fr;
@@ -585,5 +871,19 @@ input {
   .stats-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .stats-tabs {
+    width: 100%;
+  }
+
+  .stats-tabs a {
+    flex: 1;
+    text-align: center;
+  }
+
+  .chunk-detail-header,
+  .chunk-config-definition dl {
+    grid-template-columns: 1fr;
   }
 }

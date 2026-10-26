@@ -2,9 +2,15 @@ import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, HostListener, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
+import {
+  chunkConfigurationLabel,
+  chunkStatusLabel,
+} from './chunk-statistics.presenter';
 import { LengthDistributionTable } from './length-distribution-table';
 import {
+  ChunkConfigurationDescriptor,
   DatasetSummary,
+  PageChunkStatistics,
   PageStatistics,
 } from './statistics.models';
 import { StatisticsStore } from './statistics.store';
@@ -74,6 +80,22 @@ export class StatisticsPages implements OnInit {
       not_processed: 'Nincs feldolgozva',
       invalid: 'Hibás',
     }[page.processing_status];
+  }
+
+  chunkConfiguration(
+    configId: string,
+  ): ChunkConfigurationDescriptor | undefined {
+    return this.statistics()?.chunk_configurations.find(
+      (configuration) => configuration.chunk_config_id === configId,
+    );
+  }
+
+  chunkConfigurationLabel(configuration: ChunkConfigurationDescriptor): string {
+    return chunkConfigurationLabel(configuration);
+  }
+
+  chunkStatusLabel(status: PageChunkStatistics['status']): string {
+    return chunkStatusLabel(status);
   }
 
 }
