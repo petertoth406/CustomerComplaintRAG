@@ -2,22 +2,29 @@
 
 from datetime import datetime, timezone
 from math import ceil
+import re
 from statistics import fmean, median
 
 from app.core.chunk_config import ChunkConfigRegistry
 from app.core.config import DEFAULT_CHUNK_CONFIG_ID
 from app.repositories.output_statistics_repository import (
+    ChunksSnapshot,
+    DocumentsSnapshot,
     OutputStatisticsRepository,
 )
 from app.schemas.canonical_document import CanonicalDocumentRecord
+from app.schemas.chunking import ChunkConfig, ChunkRecord
 from app.schemas.statistics import (
     STATISTICS_SCHEMA_VERSION,
+    ChunkConfigurationDescriptor,
     ContentCounts,
     ContentLengthStatistics,
+    DatasetChunkStatistics,
     DatasetDescriptor,
     DatasetSummary,
     DiscoveredPage,
     LengthDistribution,
+    PageChunkStatistics,
     PageStatistics,
     StatisticsResponse,
     TextLengthStatistics,
@@ -27,6 +34,8 @@ from app.services.tokenizer_service import TokenizerService
 
 
 class StatisticsService:
+    _CONFIG_VERSION_PATTERN = re.compile(r"_v(?P<version>[1-9]\d*)$")
+
     def __init__(
         self,
         repository: OutputStatisticsRepository | None = None,
@@ -40,6 +49,7 @@ class StatisticsService:
     def get_statistics(self, *, include_tokens: bool = False) -> StatisticsResponse:
         tokenizer = self._get_tokenizer() if include_tokens else None
         token_count_cache: dict[str, int] | None = {} if tokenizer else None
+        chunk_configs = self.chunk_config_registry.all()
         source_pages = self.repository.discover_source_pages()
         numeric_page_ids = [
             page.page_id for page in source_pages if page.page_id is not None
@@ -59,6 +69,9 @@ class StatisticsService:
 
         page_statistics: list[PageStatistics] = []
         all_documents: list[CanonicalDocumentRecord] = []
+        all_chunks_by_config: dict[str, list[ChunkRecord]] = {
+            config.id: [] for config in chunk_configs
+        }
         for page in source_pages:
             source_metadata = self.repository.read_source_metadata(page)
             documents_snapshot = self.repository.read_documents(page)
@@ -74,6 +87,19 @@ class StatisticsService:
             else:
                 all_documents.extend(documents_snapshot.documents)
 
+            page_chunk_statistics: list[PageChunkStatistics] = []
+            for config in chunk_configs:
+                chunks_snapshot = self.repository.read_chunks(page, config.id)
+                if chunks_snapshot.status == "available":
+                    all_chunks_by_config[config.id].extend(chunks_snapshot.chunks)
+                page_chunk_statistics.append(
+                    self._build_page_chunk_statistics(
+                        documents_snapshot,
+                        chunks_snapshot,
+                        config,
+                    )
+                )
+
             page_statistics.append(
                 PageStatistics(
                     page=page.name,
@@ -84,6 +110,7 @@ class StatisticsService:
                     processing_status=documents_snapshot.status,
                     content=content_counts,
                     lengths=length_statistics,
+                    chunk_statistics=page_chunk_statistics,
                 )
             )
 
@@ -100,6 +127,10 @@ class StatisticsService:
                 if tokenizer is not None
                 else None
             ),
+            chunk_configurations=[
+                self._describe_chunk_configuration(config)
+                for config in chunk_configs
+            ],
             dataset=DatasetDescriptor(
                 dataset_id=output_dir.name,
                 output_directory=str(output_dir),
@@ -118,8 +149,62 @@ class StatisticsService:
                 tuple(all_documents),
                 tokenizer,
                 token_count_cache,
+                chunk_configs,
+                all_chunks_by_config,
             ),
             pages=page_statistics,
+        )
+
+    @classmethod
+    def _describe_chunk_configuration(cls, config: ChunkConfig ) -> ChunkConfigurationDescriptor:
+        version_match = cls._CONFIG_VERSION_PATTERN.search(config.id)
+        return ChunkConfigurationDescriptor(
+            chunk_config_id=config.id,
+            version=(
+                int(version_match.group("version"))
+                if version_match is not None
+                else None
+            ),
+            strategy=config.strategy,
+            collection_name=config.collection_name,
+            tokenizer_model=config.tokenizer_model,
+            tokenizer_revision=config.tokenizer_revision,
+            max_tokens=config.max_tokens,
+            overlap_tokens=config.overlap_tokens,
+        )
+
+    @classmethod
+    def _build_page_chunk_statistics(cls, documents_snapshot: DocumentsSnapshot, chunks_snapshot: ChunksSnapshot, config: ChunkConfig) -> PageChunkStatistics:
+        chunks = chunks_snapshot.chunks
+        covered_document_ids = {chunk.document_id for chunk in chunks}
+        expected_document_ids = (
+            {document.document_id for document in documents_snapshot.documents}
+            if documents_snapshot.status in {"processed", "processed_empty"}
+            else None
+        )
+        missing_document_count = (
+            len(expected_document_ids - covered_document_ids)
+            if expected_document_ids is not None
+            else None
+        )
+        if chunks_snapshot.status in {"missing", "invalid"}:
+            status = chunks_snapshot.status
+        elif expected_document_ids is None:
+            status = "unverifiable"
+        elif missing_document_count:
+            status = "partial"
+        else:
+            status = "complete"
+
+        return PageChunkStatistics(
+            chunk_config_id=config.id,
+            status=status,
+            document_count=len(covered_document_ids),
+            chunk_count=len(chunks),
+            missing_document_count=missing_document_count,
+            token_lengths=cls._calculate_distribution(
+                [chunk.token_count for chunk in chunks]
+            ),
         )
 
     @staticmethod
@@ -259,6 +344,8 @@ class StatisticsService:
         documents: tuple[CanonicalDocumentRecord, ...],
         tokenizer: TokenizerService | None,
         token_count_cache: dict[str, int] | None,
+        chunk_configs: list[ChunkConfig],
+        all_chunks_by_config: dict[str, list[ChunkRecord]],
     ) -> DatasetSummary:
         counted_pages = [
             page
@@ -311,6 +398,71 @@ class StatisticsService:
                 documents,
                 tokenizer,
                 token_count_cache,
+            ),
+            chunk_statistics=[
+                cls._build_dataset_chunk_statistics(
+                    pages,
+                    config,
+                    all_chunks_by_config[config.id],
+                )
+                for config in chunk_configs
+            ],
+        )
+
+    @classmethod
+    def _build_dataset_chunk_statistics(cls, pages: list[PageStatistics], config: ChunkConfig, chunks: list[ChunkRecord]) -> DatasetChunkStatistics:
+        page_statistics = [
+            next(
+                item
+                for item in page.chunk_statistics
+                if item.chunk_config_id == config.id
+            )
+            for page in pages
+        ]
+        complete_page_count = sum(
+            item.status == "complete" for item in page_statistics
+        )
+        partial_page_count = sum(
+            item.status == "partial" for item in page_statistics
+        )
+        missing_page_count = sum(
+            item.status == "missing" for item in page_statistics
+        )
+        invalid_page_count = sum(
+            item.status == "invalid" for item in page_statistics
+        )
+        unverifiable_page_count = sum(
+            item.status == "unverifiable" for item in page_statistics
+        )
+        missing_document_count = sum(
+            item.missing_document_count or 0 for item in page_statistics
+        )
+
+        if invalid_page_count:
+            status = "invalid"
+        elif missing_page_count == len(page_statistics):
+            status = "missing"
+        elif complete_page_count == len(page_statistics):
+            status = "complete"
+        else:
+            status = "partial"
+
+        return DatasetChunkStatistics(
+            chunk_config_id=config.id,
+            status=status,
+            page_count=len(page_statistics),
+            complete_page_count=complete_page_count,
+            partial_page_count=partial_page_count,
+            missing_page_count=missing_page_count,
+            invalid_page_count=invalid_page_count,
+            unverifiable_page_count=unverifiable_page_count,
+            document_count=sum(
+                item.document_count for item in page_statistics
+            ),
+            chunk_count=len(chunks),
+            missing_document_count=missing_document_count,
+            token_lengths=cls._calculate_distribution(
+                [chunk.token_count for chunk in chunks]
             ),
         )
 

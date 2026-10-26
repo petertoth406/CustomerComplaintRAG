@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import OUTPUT_DIR
 from app.schemas.canonical_document import CanonicalDocumentRecord
+from app.schemas.chunking import ChunkRecord
 
 
 SOURCE_PAGE_DIRECTORY_PATTERN = re.compile(r"^levelek(?P<page_id>[1-9]\d*)?$")
@@ -48,6 +49,15 @@ class SourceMetadataSnapshot:
 class DocumentsSnapshot:
     status: DocumentsStatus
     documents: tuple[CanonicalDocumentRecord, ...] = ()
+
+
+ChunkFileStatus = Literal["available", "missing", "invalid"]
+
+
+@dataclass(frozen=True)
+class ChunksSnapshot:
+    status: ChunkFileStatus
+    chunks: tuple[ChunkRecord, ...] = ()
 
 
 class OutputStatisticsRepository:
@@ -130,3 +140,33 @@ class OutputStatisticsRepository:
             status="processed" if documents else "processed_empty",
             documents=documents,
         )
+
+    def read_chunks(self, page: DiscoveredSourcePage, chunk_config_id: str) -> ChunksSnapshot:
+        chunks_path = (self.output_dir / page.name / "chunks" / f"{chunk_config_id}.jsonl")
+        
+        if not chunks_path.is_file():
+            return ChunksSnapshot(status="missing")
+
+        try:
+            lines = chunks_path.read_text(encoding="utf-8").splitlines()
+            chunks = tuple(
+                ChunkRecord.model_validate(json.loads(line))
+                for line in lines
+                if line.strip()
+            )
+            if any(
+                chunk.chunk_config_id != chunk_config_id
+                or chunk.source_page != page.name
+                for chunk in chunks
+            ):
+                return ChunksSnapshot(status="invalid")
+        except (
+            OSError,
+            UnicodeError,
+            json.JSONDecodeError,
+            TypeError,
+            ValidationError,
+        ):
+            return ChunksSnapshot(status="invalid")
+
+        return ChunksSnapshot(status="available", chunks=chunks)

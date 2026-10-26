@@ -21,6 +21,41 @@ export interface ContentLengthStatistics {
   inline_answers: TextLengthStatistics;
 }
 
+export interface ChunkConfigurationDescriptor {
+  chunk_config_id: string;
+  version: number | null;
+  strategy: 'structural' | 'fixed_token';
+  collection_name: string;
+  tokenizer_model: string;
+  tokenizer_revision: string;
+  max_tokens: number | null;
+  overlap_tokens: number;
+}
+
+export interface PageChunkStatistics {
+  chunk_config_id: string;
+  status: 'complete' | 'partial' | 'missing' | 'invalid' | 'unverifiable';
+  document_count: number;
+  chunk_count: number;
+  missing_document_count: number | null;
+  token_lengths: LengthDistribution;
+}
+
+export interface DatasetChunkStatistics {
+  chunk_config_id: string;
+  status: 'complete' | 'partial' | 'missing' | 'invalid';
+  page_count: number;
+  complete_page_count: number;
+  partial_page_count: number;
+  missing_page_count: number;
+  invalid_page_count: number;
+  unverifiable_page_count: number;
+  document_count: number;
+  chunk_count: number;
+  missing_document_count: number;
+  token_lengths: LengthDistribution;
+}
+
 export interface ContentCounts {
   document_count: number | null;
   complaint_document_count: number | null;
@@ -44,6 +79,7 @@ export interface PageStatistics {
     | 'invalid';
   content: ContentCounts;
   lengths: ContentLengthStatistics | null;
+  chunk_statistics: PageChunkStatistics[];
 }
 
 export interface DatasetSummary {
@@ -57,6 +93,7 @@ export interface DatasetSummary {
   invalid_documents_file_count: number;
   content: ContentCounts;
   lengths: ContentLengthStatistics;
+  chunk_statistics: DatasetChunkStatistics[];
 }
 
 export interface StatisticsResponse {
@@ -64,6 +101,7 @@ export interface StatisticsResponse {
   statistics_schema_version: string;
   tokens_included: boolean;
   tokenizer: { model: string; revision: string } | null;
+  chunk_configurations: ChunkConfigurationDescriptor[];
   dataset: {
     dataset_id: string;
     output_directory: string;

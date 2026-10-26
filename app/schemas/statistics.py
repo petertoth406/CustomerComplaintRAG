@@ -6,8 +6,8 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-StatisticsSchemaVersion = Literal["1.0"]
-STATISTICS_SCHEMA_VERSION: StatisticsSchemaVersion = "1.0"
+StatisticsSchemaVersion = Literal["1.1"]
+STATISTICS_SCHEMA_VERSION: StatisticsSchemaVersion = "1.1"
 
 
 class DiscoveredPage(BaseModel):
@@ -59,6 +59,47 @@ class ContentLengthStatistics(BaseModel):
     inline_answers: TextLengthStatistics
 
 
+class ChunkConfigurationDescriptor(BaseModel):
+    chunk_config_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    version: int | None = Field(default=None, ge=1)
+    strategy: Literal["structural", "fixed_token"]
+    collection_name: str = Field(min_length=1)
+    tokenizer_model: str = Field(min_length=1)
+    tokenizer_revision: str = Field(min_length=1)
+    max_tokens: int | None = Field(default=None, ge=1)
+    overlap_tokens: int = Field(ge=0)
+
+
+class PageChunkStatistics(BaseModel):
+    chunk_config_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    status: Literal[
+        "complete",
+        "partial",
+        "missing",
+        "invalid",
+        "unverifiable",
+    ]
+    document_count: int = Field(ge=0)
+    chunk_count: int = Field(ge=0)
+    missing_document_count: int | None = Field(default=None, ge=0)
+    token_lengths: LengthDistribution
+
+
+class DatasetChunkStatistics(BaseModel):
+    chunk_config_id: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    status: Literal["complete", "partial", "missing", "invalid"]
+    page_count: int = Field(ge=0)
+    complete_page_count: int = Field(ge=0)
+    partial_page_count: int = Field(ge=0)
+    missing_page_count: int = Field(ge=0)
+    invalid_page_count: int = Field(ge=0)
+    unverifiable_page_count: int = Field(ge=0)
+    document_count: int = Field(ge=0)
+    chunk_count: int = Field(ge=0)
+    missing_document_count: int = Field(ge=0)
+    token_lengths: LengthDistribution
+
+
 class PageStatistics(BaseModel):
     page: str = Field(pattern=r"^levelek(?:[1-9]\d*)?$")
     page_id: int | None = Field(default=None, ge=1)
@@ -73,6 +114,7 @@ class PageStatistics(BaseModel):
     ]
     content: ContentCounts
     lengths: ContentLengthStatistics | None = None
+    chunk_statistics: list[PageChunkStatistics]
 
 
 class DatasetSummary(BaseModel):
@@ -86,6 +128,7 @@ class DatasetSummary(BaseModel):
     invalid_documents_file_count: int = Field(ge=0)
     content: ContentCounts
     lengths: ContentLengthStatistics
+    chunk_statistics: list[DatasetChunkStatistics]
 
 
 class TokenizerDescriptor(BaseModel):
@@ -98,6 +141,7 @@ class StatisticsResponse(BaseModel):
     statistics_schema_version: StatisticsSchemaVersion
     tokens_included: bool
     tokenizer: TokenizerDescriptor | None = None
+    chunk_configurations: list[ChunkConfigurationDescriptor]
     dataset: DatasetDescriptor
     summary: DatasetSummary
     pages: list[PageStatistics]
