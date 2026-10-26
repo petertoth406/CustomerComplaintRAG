@@ -1,0 +1,157 @@
+<section class="stats-toolbar" aria-label="Oldalstatisztikai lekérdezés beállításai">
+  <div>
+    <strong>Forrásoldalak</strong>
+    <span>Kattints egy sorra a részletes statisztikához.</span>
+  </div>
+  <div class="stats-actions">
+    <label class="stats-switch">
+      <input type="checkbox" [ngModel]="includeTokens()" (ngModelChange)="includeTokens.set($event)">
+      <span>Tokenstatisztika</span>
+    </label>
+    <button type="button" (click)="load()" [disabled]="loading()">
+      {{ loading() ? 'Betöltés…' : 'Frissítés' }}
+    </button>
+  </div>
+</section>
+
+@if (error(); as message) {
+  <div class="stats-alert error" role="alert">{{ message }}</div>
+}
+
+@if (loading() && !statistics()) {
+  <div class="stats-loading">Az oldalstatisztikák betöltése folyamatban…</div>
+} @else if (statistics(); as data) {
+  <section class="stats-panel">
+    <div class="stats-panel-heading">
+      <div>
+        <p class="stats-eyebrow">{{ data.pages.length }} forrásoldal</p>
+        <h2>Oldalankénti statisztika</h2>
+      </div>
+      <span class="stats-note">Frissítve: {{ data.generated_at | date:'yyyy. MM. dd. HH:mm:ss' }}</span>
+    </div>
+
+    <div class="stats-table-wrap">
+      <table class="stats-table stats-page-table">
+        <thead>
+          <tr>
+            <th>Oldal</th>
+            <th>Letöltés</th>
+            <th>Feldolgozás</th>
+            <th>Dokumentum</th>
+            <th>Panasz</th>
+            <th>Inline válasz</th>
+            <th>Külső válasz</th>
+            <th>Válaszarány</th>
+            <th><span class="visually-hidden">Művelet</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (page of data.pages; track page.page) {
+            <tr
+              class="selectable-row"
+              tabindex="0"
+              (click)="openPage(page)"
+              (keydown.enter)="openPage(page)"
+              (keydown.space)="openPage(page); $event.preventDefault()"
+            >
+              <th>{{ page.page }}</th>
+              <td><span class="status-badge" [class.ok]="page.download_status === 'available'" [class.bad]="page.download_status !== 'available'">{{ downloadStatusLabel(page) }}</span></td>
+              <td><span class="status-badge" [class.ok]="page.processing_status === 'processed'" [class.bad]="page.processing_status === 'invalid'">{{ processingStatusLabel(page) }}</span></td>
+              <td>{{ page.content.document_count ?? '—' }}</td>
+              <td>{{ page.content.complaint_document_count ?? '—' }}</td>
+              <td>{{ page.content.inline_answer_count ?? '—' }}</td>
+              <td>{{ page.content.external_answer_reference_count ?? '—' }}</td>
+              <td>{{ answerRate(page) | number:'1.1-1' }}%</td>
+              <td><button class="table-action" type="button" (click)="$event.stopPropagation(); openPage(page)">Részletek</button></td>
+            </tr>
+          }
+        </tbody>
+        <tfoot>
+          <tr>
+            <th>Összesen</th>
+            <td>{{ data.summary.downloaded_page_count }} / {{ data.summary.page_directory_count }} oldal</td>
+            <td>{{ data.summary.processed_page_count }} / {{ data.summary.page_directory_count }} oldal</td>
+            <td>{{ data.summary.content.document_count ?? '—' }}</td>
+            <td>{{ data.summary.content.complaint_document_count ?? '—' }}</td>
+            <td>{{ data.summary.content.inline_answer_count ?? '—' }}</td>
+            <td>{{ data.summary.content.external_answer_reference_count ?? '—' }}</td>
+            <td>{{ summaryAnswerRate(data.summary) | number:'1.1-1' }}%</td>
+            <td><span class="visually-hidden">Nincs művelet</span></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
+}
+
+@if (selectedPage(); as page) {
+  <div class="modal-backdrop" role="presentation" (click)="closeModal()">
+    <section
+      class="stats-modal"
+      role="dialog"
+      aria-modal="true"
+      [attr.aria-labelledby]="'modal-title-' + page.page"
+      (click)="$event.stopPropagation()"
+    >
+      <header class="modal-header">
+        <div>
+          <p class="stats-eyebrow">Forrásoldal részletei</p>
+          <h2 [id]="'modal-title-' + page.page">{{ page.page }}</h2>
+        </div>
+        <button class="modal-close" type="button" aria-label="Ablak bezárása" (click)="closeModal()">×</button>
+      </header>
+
+      <div class="modal-content">
+        <div class="detail-meta">
+          <div><span>Letöltési állapot</span><strong>{{ downloadStatusLabel(page) }}</strong></div>
+          <div><span>Feldolgozási állapot</span><strong>{{ processingStatusLabel(page) }}</strong></div>
+          <div><span>Letöltés időpontja</span><strong>{{ page.downloaded_at ? (page.downloaded_at | date:'yyyy. MM. dd. HH:mm:ss') : '—' }}</strong></div>
+          <div>
+            <span>Forrás</span>
+            @if (page.source_url) {
+              <a [href]="page.source_url" target="_blank" rel="noopener noreferrer">Oldal megnyitása ↗</a>
+            } @else {
+              <strong>—</strong>
+            }
+          </div>
+        </div>
+
+        <div class="detail-counts">
+          <article><span>Dokumentum</span><strong>{{ page.content.document_count ?? '—' }}</strong></article>
+          <article><span>Panaszüzenet</span><strong>{{ page.content.complaint_message_count ?? '—' }}</strong></article>
+          <article><span>Inline válasz</span><strong>{{ page.content.inline_answer_count ?? '—' }}</strong></article>
+          <article><span>Külső válasz</span><strong>{{ page.content.external_answer_reference_count ?? '—' }}</strong></article>
+          <article><span>Detektált válasz</span><strong>{{ page.content.detected_answer_count ?? '—' }}</strong></article>
+          <article><span>Válaszarány</span><strong>{{ answerRate(page) | number:'1.1-1' }}%</strong></article>
+        </div>
+
+        @if (page.lengths; as lengths) {
+          <div class="modal-section-heading">
+            <h3>Hosszeloszlások</h3>
+            <p>Az alábbi értékek kizárólag a(z) {{ page.page }} forrásoldal feldolgozott tartalmaira vonatkoznak.</p>
+          </div>
+          <div class="length-distribution-grid">
+            <app-length-distribution-table
+              title="Feldolgozott dokumentumok teljes szövege"
+              description="Ezen a forrásoldalon található feldolgozott dokumentumok teljes szövegének hosszeloszlása. Minden dokumentum egy megfigyelés."
+              [statistics]="lengths.documents"
+              [includeTokens]="statistics()?.tokens_included ?? false"
+            />
+            <app-length-distribution-table
+              title="Panaszüzenetek szövege"
+              description="Ezen a forrásoldalon azonosított panaszüzenetek hosszeloszlása. Egy dokumentum több panaszüzenetet is tartalmazhat."
+              [statistics]="lengths.complaints"
+              [includeTokens]="statistics()?.tokens_included ?? false"
+            />
+            <app-length-distribution-table
+              title="Inline válaszok szövege"
+              description="Ezen a forrásoldalon közvetlenül megtalálható céges válaszok szövegének hosszeloszlása."
+              [statistics]="lengths.inline_answers"
+              [includeTokens]="statistics()?.tokens_included ?? false"
+            />
+          </div>
+        }
+      </div>
+    </section>
+  </div>
+}

@@ -1,0 +1,95 @@
+<section class="stats-toolbar" aria-label="Statisztikai lekérdezés beállításai">
+  <div>
+    <strong>Teljes állomány</strong>
+    <span>Összesített állapot- és hosszmérőszámok</span>
+  </div>
+  <div class="stats-actions">
+    <label class="stats-switch">
+      <input type="checkbox" [ngModel]="includeTokens()" (ngModelChange)="includeTokens.set($event)">
+      <span>Tokenstatisztika</span>
+    </label>
+    <button type="button" (click)="load()" [disabled]="loading()">
+      {{ loading() ? 'Betöltés…' : 'Frissítés' }}
+    </button>
+  </div>
+</section>
+
+@if (error(); as message) {
+  <div class="stats-alert error" role="alert">{{ message }}</div>
+}
+
+@if (loading() && !statistics()) {
+  <div class="stats-loading">A statisztikák betöltése folyamatban…</div>
+} @else if (statistics(); as data) {
+  <section class="stats-meta">
+    <span><strong>Adathalmaz:</strong> {{ data.dataset.dataset_id }}</span>
+    <span><strong>Generálva:</strong> {{ data.generated_at | date:'yyyy. MM. dd. HH:mm:ss' }}</span>
+    <span><strong>Oldaltartomány:</strong> {{ data.dataset.first_page_id }}–{{ data.dataset.last_page_id }}</span>
+    @if (data.tokens_included && data.tokenizer) {
+      <span><strong>Tokenizer:</strong> {{ data.tokenizer.model }}</span>
+    }
+  </section>
+
+  <section class="stats-kpis" aria-label="Főbb mutatók">
+    <article class="stats-kpi">
+      <span>Feldolgozott oldalak <span class="info-tooltip" tabindex="0" aria-label="A feldolgozott oldalak jelentése">i<span class="info-tooltip-content" role="tooltip">Azok a forrásoldalak, amelyekhez érvényes feldolgozott dokumentumállomány tartozik.</span></span></span>
+      <strong>{{ data.summary.processed_page_count | number }}</strong>
+      <small>{{ data.summary.page_directory_count }} felismert könyvtárból</small>
+    </article>
+    <article class="stats-kpi">
+      <span>Feldolgozott dokumentumok <span class="info-tooltip" tabindex="0" aria-label="A dokumentumok jelentése">i<span class="info-tooltip-content" role="tooltip">A feldolgozás során létrehozott önálló dokumentumrekordok teljes száma.</span></span></span>
+      <strong>{{ data.summary.content.document_count | number }}</strong>
+      <small>{{ data.summary.content.complaint_message_count | number }} panaszüzenet</small>
+    </article>
+    <article class="stats-kpi">
+      <span>Inline válaszok <span class="info-tooltip" tabindex="0" aria-label="Az inline válaszok jelentése">i<span class="info-tooltip-content" role="tooltip">A panasz forrásoldalán közvetlenül megtalálható céges válaszok.</span></span></span>
+      <strong>{{ data.summary.content.inline_answer_count | number }}</strong>
+      <small>Az oldalakba ágyazott válaszok</small>
+    </article>
+    <article class="stats-kpi">
+      <span>Külső válaszok <span class="info-tooltip" tabindex="0" aria-label="A külső válaszok jelentése">i<span class="info-tooltip-content" role="tooltip">Külön oldalra mutató, detektált céges válaszhivatkozások; nem feltétlenül jelentenek már letöltött válaszszöveget.</span></span></span>
+      <strong>{{ data.summary.content.external_answer_reference_count | number }}</strong>
+      <small>Külön oldalra mutató hivatkozások</small>
+    </article>
+    <article class="stats-kpi accent">
+      <span>Válaszadási arány <span class="info-tooltip" tabindex="0" aria-label="A válaszadási arány jelentése">i<span class="info-tooltip-content" role="tooltip">A legalább egy detektált válasszal rendelkező dokumentumok aránya a panaszdokumentumok között.</span></span></span>
+      <strong>{{ answerRate(data) | number:'1.1-1' }}%</strong>
+      <small>{{ data.summary.content.answered_document_count | number }} megválaszolt dokumentum</small>
+    </article>
+    <article class="stats-kpi" [class.warning]="data.summary.invalid_documents_file_count > 0 || data.summary.not_processed_page_count > 0">
+      <span>Feldolgozási eltérések</span>
+      <strong>{{ data.summary.invalid_documents_file_count + data.summary.not_processed_page_count }}</strong>
+      <small>Hibás vagy feldolgozatlan oldal</small>
+    </article>
+  </section>
+
+  <section class="stats-panel">
+    <div class="stats-panel-heading">
+      <div>
+        <p class="stats-eyebrow">Hosszeloszlások</p>
+        <h2>Dokumentumok és üzenetek</h2>
+      </div>
+      <span class="stats-note">A percentilisek nearest-rank módszerrel készülnek.</span>
+    </div>
+    <div class="length-distribution-grid">
+      <app-length-distribution-table
+        title="Feldolgozott dokumentumok teljes szövege"
+        description="Az összes feldolgozott dokumentum teljes szövegének hosszeloszlása. Minden dokumentum egy megfigyelés; az értékek nem egyetlen összevont dokumentumra vonatkoznak."
+        [statistics]="data.summary.lengths.documents"
+        [includeTokens]="data.tokens_included"
+      />
+      <app-length-distribution-table
+        title="Panaszüzenetek szövege"
+        description="Az összes azonosított panaszüzenet hosszeloszlása. Egy dokumentum több panaszüzenetet is tartalmazhat."
+        [statistics]="data.summary.lengths.complaints"
+        [includeTokens]="data.tokens_included"
+      />
+      <app-length-distribution-table
+        title="Inline válaszok szövege"
+        description="A forrásoldalakon közvetlenül megtalálható céges válaszok szövegének hosszeloszlása."
+        [statistics]="data.summary.lengths.inline_answers"
+        [includeTokens]="data.tokens_included"
+      />
+    </div>
+  </section>
+}

@@ -1,0 +1,17 @@
+<main class="stats-page">
+  <header class="stats-hero">
+    <div>
+      <p class="stats-eyebrow">Korpuszstatisztika</p>
+      <h1>Az aktuális output áttekintése</h1>
+      <p>
+        A megjelenített értékek minden lekéréskor közvetlenül az aktuális
+        output állományból készülnek.
+      </p>
+    </div>
+    <nav class="stats-tabs" aria-label="Statisztikai nézetek">
+      <a routerLink="overview" routerLinkActive="active">Összesítés</a>
+      <a routerLink="pages" routerLinkActive="active">Oldalanként</a>
+    </nav>
+  </header>
+  <router-outlet />
+</main>
