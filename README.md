@@ -174,6 +174,24 @@ statisztikai, előfeldolgozási, embedding- és keresési végpontokhoz. Dockere
 indításkor a `http://localhost:4200` címen érhető el, és a kéréseket belső
 proxy továbbítja az API-szolgáltatásnak.
 
+A statisztikai végpont alapértelmezetten karakter- és szöveghossz-adatokat
+számít az aktuális `output/` tartalmából. A konfigurált tokenizerrel számított
+tokeneloszlás opcionálisan kérhető:
+
+```http
+GET /api/v1/statistics?include_tokens=true
+```
+
+A válasz az összes konfigurált chunkolási változat definícióját, továbbá
+teljes állományra és forrásoldalanként a chunkfájl állapotát, a lefedett és
+hiányzó dokumentumok számát, a chunkszámot és a chunkok eltárolt
+tokenhossz-eloszlását is tartalmazza. A chunkstatisztika nem tokenizálja újra a
+szövegeket: a JSONL chunkrekordok `token_count` mezőjét használja. A
+konfiguráció összesített állapota `complete`, `partial`, `missing` vagy
+`invalid`. Az oldalankénti állapot ezen felül `unverifiable` is lehet, ha a
+chunkfájl érvényes, de a dokumentum-alapállomány hiánya vagy hibája miatt a
+lefedettség nem ellenőrizhető.
+
 ## Lokális fejlesztői környezet
 
 Python 3.12 vagy újabb verzióval, PowerShellben:

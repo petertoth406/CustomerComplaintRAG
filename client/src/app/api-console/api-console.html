@@ -3,8 +3,8 @@
     <p class="eyebrow">Customer Complaint RAG</p>
     <h1>API konzol</h1>
     <p class="description">
-      Kezelőfelület a feldolgozás, embedding és szemantikus keresés
-      elindításához. A korpusz aktuális állapota a
+      Kezelőfelület a feldolgozás, embedding és szemantikus keresés elindításához. A korpusz
+      aktuális állapota a
       <a routerLink="/statistics">statisztikai felületen</a> tekinthető meg.
     </p>
   </header>
@@ -38,52 +38,69 @@
         <p class="section-label">Adat-előkészítés</p>
         <h2 id="preprocessing-endpoints">Preprocessing végpontok</h2>
       </div>
-      <p class="hint">Adj meg egy oldalazonosítót vagy egy tartományt. Ha mind üres, az API alapértelmezett oldala kerül feldolgozásra.</p>
+      <p class="hint">
+        Adj meg egy oldalazonosítót vagy egy tartományt. Ha mind üres, az API alapértelmezett oldala
+        kerül feldolgozásra.
+      </p>
     </div>
 
     <div class="parameters">
       <label>
         <span>Oldalazonosító</span>
-        <input type="number" min="1" name="pageId" [(ngModel)]="pageSelection.pageId" placeholder="például 35">
+        <input
+          type="number"
+          min="1"
+          name="pageId"
+          [(ngModel)]="pageSelection.pageId"
+          placeholder="például 35"
+        />
       </label>
       <label>
         <span>Kezdőoldal</span>
-        <input type="number" min="1" name="startPage" [(ngModel)]="pageSelection.startPage" placeholder="például 1">
+        <input
+          type="number"
+          min="1"
+          name="startPage"
+          [(ngModel)]="pageSelection.startPage"
+          placeholder="például 1"
+        />
       </label>
       <label>
         <span>Végoldal</span>
-        <input type="number" min="1" name="endPage" [(ngModel)]="pageSelection.endPage" placeholder="például 5">
+        <input
+          type="number"
+          min="1"
+          name="endPage"
+          [(ngModel)]="pageSelection.endPage"
+          placeholder="például 5"
+        />
       </label>
       <label class="checkbox">
-        <input type="checkbox" name="timestamp" [(ngModel)]="timestamp">
-        <span>Időbélyeges kimenet</span>
+        <input type="checkbox" name="timestamp" [(ngModel)]="timestamp" />
+        <span>Időbélyeges kimenet a külön előfeldolgozáshoz</span>
       </label>
     </div>
 
-    <div class="card-grid">
-      <article class="card">
-        <div class="endpoint"><span class="method post">POST</span><code>/api/v1/preprocessing/run</code></div>
-        <p>Letöltés és feldolgozás egyetlen hívással.</p>
-        <button type="button" (click)="runPipeline()" [disabled]="isLoading('run')">
-          {{ isLoading('run') ? 'Hívás folyamatban…' : 'Pipeline indítása' }}
-        </button>
-        @if (responseFor('run'); as response) {
-          <div class="response" [class.error]="!response.ok"><strong>HTTP {{ response.status }}</strong><pre>{{ response.body }}</pre></div>
-        }
-      </article>
+    <article class="card full-pipeline-card">
+      <div class="pipeline-copy">
+        <div>
+          <p class="section-label">Teljes folyamat</p>
+          <h3>Letöltés → feldolgozás → chunkolás → embedding</h3>
+          <p>
+            A normál <code>output/</code> kimenetre fut, és csak sikeres előfeldolgozás után indítja
+            el az embeddinget.
+          </p>
+        </div>
 
-      <article class="card">
-        <div class="endpoint"><span class="method post">POST</span><code>/api/v1/preprocessing/embeddings</code></div>
-        <p>Chunkok és embeddingek létrehozása a kiválasztott konfigurációkhoz.</p>
         <fieldset>
           <legend>Chunkolási konfigurációk</legend>
           @for (config of chunkConfigs; track config.id) {
             <label class="checkbox">
               <input
                 type="checkbox"
-                [name]="'embedding-' + config.id"
+                [name]="'pipeline-' + config.id"
                 [(ngModel)]="chunkSelections[config.id]"
-              >
+              />
               <span>{{ config.label }}</span>
             </label>
           }
@@ -91,6 +108,51 @@
             Mindegyik kijelölése
           </button>
         </fieldset>
+      </div>
+
+      <button
+        type="button"
+        class="primary-action"
+        (click)="runFullPipeline()"
+        [disabled]="isLoading('fullPipeline') || selectedChunkConfigIds().length === 0"
+      >
+        {{ isLoading('fullPipeline') ? 'Teljes pipeline fut…' : 'Teljes pipeline indítása' }}
+      </button>
+
+      @if (responseFor('fullPipeline'); as response) {
+        <div class="response" [class.error]="!response.ok">
+          <strong>HTTP {{ response.status }}</strong>
+          <pre>{{ response.body }}</pre>
+        </div>
+      }
+    </article>
+
+    <div class="card-grid">
+      <article class="card">
+        <div class="endpoint">
+          <span class="method post">POST</span><code>/api/v1/preprocessing/run</code>
+        </div>
+        <p>Csak letöltés és feldolgozás; opcionálisan külön időbélyeges archívumba.</p>
+        <button type="button" (click)="runPipeline()" [disabled]="isLoading('run')">
+          {{ isLoading('run') ? 'Hívás folyamatban…' : 'Pipeline indítása' }}
+        </button>
+        @if (responseFor('run'); as response) {
+          <div class="response" [class.error]="!response.ok">
+            <strong>HTTP {{ response.status }}</strong>
+            <pre>{{ response.body }}</pre>
+          </div>
+        }
+      </article>
+
+      <article class="card">
+        <div class="endpoint">
+          <span class="method post">POST</span><code>/api/v1/preprocessing/embeddings</code>
+        </div>
+        <p>Chunkok és embeddingek létrehozása a kiválasztott konfigurációkhoz.</p>
+        <p class="selection-summary">
+          Kiválasztva: {{ selectedChunkConfigIds().length }} /
+          {{ chunkConfigs.length }} konfiguráció. A kijelölés a teljes pipeline kártyán módosítható.
+        </p>
         <button
           type="button"
           (click)="createEmbeddings()"
@@ -99,7 +161,10 @@
           {{ isLoading('embeddings') ? 'Hívás folyamatban…' : 'Embedding indítása' }}
         </button>
         @if (responseFor('embeddings'); as response) {
-          <div class="response" [class.error]="!response.ok"><strong>HTTP {{ response.status }}</strong><pre>{{ response.body }}</pre></div>
+          <div class="response" [class.error]="!response.ok">
+            <strong>HTTP {{ response.status }}</strong>
+            <pre>{{ response.body }}</pre>
+          </div>
         }
       </article>
     </div>
@@ -125,7 +190,12 @@
       </label>
       <label>
         <span>Keresőkérdés</span>
-        <textarea name="query" rows="3" [(ngModel)]="query" placeholder="például: hibás mosógép garanciális javítása"></textarea>
+        <textarea
+          name="query"
+          rows="3"
+          [(ngModel)]="query"
+          placeholder="például: hibás mosógép garanciális javítása"
+        ></textarea>
       </label>
       <button type="button" (click)="search()" [disabled]="isLoading('search') || !query.trim()">
         {{ isLoading('search') ? 'Keresés folyamatban…' : 'Keresés' }}

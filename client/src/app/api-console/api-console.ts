@@ -4,7 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
-type RequestKey = 'status' | 'run' | 'embeddings' | 'search';
+type RequestKey = 'status' | 'fullPipeline' | 'run' | 'embeddings' | 'search';
 
 interface ApiResponse {
   status: number;
@@ -58,6 +58,47 @@ export class ApiConsole {
     void this.send('status', 'GET', '/api/v1/status');
   }
 
+  async runFullPipeline(): Promise<void> {
+    const key: RequestKey = 'fullPipeline';
+    this.loading.update((state) => ({ ...state, [key]: true }));
+    this.clearResponse(key);
+
+    try {
+      const preprocessing = await this.request('POST', '/api/v1/preprocessing/run', {
+        ...this.selectionPayload(),
+        timestamp: false,
+      });
+
+      if (!preprocessing.ok) {
+        this.setResponse(key, {
+          ...preprocessing,
+          body: this.formatBody({
+            stage: 'preprocessing',
+            error: this.parseBody(preprocessing.body),
+          }),
+        });
+        return;
+      }
+
+      const embeddings = await this.request('POST', '/api/v1/preprocessing/embeddings', {
+        ...this.selectionPayload(),
+        chunk_config_ids: this.selectedChunkConfigIds(),
+      });
+
+      this.setResponse(key, {
+        status: embeddings.status,
+        ok: embeddings.ok,
+        body: this.formatBody({
+          stage: embeddings.ok ? 'completed' : 'embeddings',
+          preprocessing: this.parseBody(preprocessing.body),
+          embeddings: this.parseBody(embeddings.body),
+        }),
+      });
+    } finally {
+      this.loading.update((state) => ({ ...state, [key]: false }));
+    }
+  }
+
   runPipeline(): void {
     void this.send('run', 'POST', '/api/v1/preprocessing/run', {
       ...this.selectionPayload(),
@@ -90,9 +131,7 @@ export class ApiConsole {
   }
 
   selectAllChunkConfigs(): void {
-    this.chunkSelections = Object.fromEntries(
-      this.chunkConfigs.map((config) => [config.id, true]),
-    );
+    this.chunkSelections = Object.fromEntries(this.chunkConfigs.map((config) => [config.id, true]));
   }
 
   responseFor(key: RequestKey): ApiResponse | undefined {
@@ -124,36 +163,52 @@ export class ApiConsole {
     body?: unknown,
   ): Promise<void> {
     this.loading.update((state) => ({ ...state, [key]: true }));
+    this.clearResponse(key);
+
+    try {
+      this.setResponse(key, await this.request(method, url, body));
+    } finally {
+      this.loading.update((state) => ({ ...state, [key]: false }));
+    }
+  }
+
+  private async request(method: 'GET' | 'POST', url: string, body?: unknown): Promise<ApiResponse> {
+    try {
+      const response = await firstValueFrom(
+        this.http.request(method, url, { body, observe: 'response' }),
+      );
+      return {
+        status: response.status,
+        ok: response.ok,
+        body: this.formatBody(response.body),
+      };
+    } catch (error: unknown) {
+      const httpError = error instanceof HttpErrorResponse ? error : null;
+      return {
+        status: httpError?.status ?? 0,
+        ok: false,
+        body: this.formatBody(httpError?.error ?? error),
+      };
+    }
+  }
+
+  private clearResponse(key: RequestKey): void {
     this.responses.update((state) => {
       const next = { ...state };
       delete next[key];
       return next;
     });
+  }
 
+  private setResponse(key: RequestKey, response: ApiResponse): void {
+    this.responses.update((state) => ({ ...state, [key]: response }));
+  }
+
+  private parseBody(body: string): unknown {
     try {
-      const response = await firstValueFrom(
-        this.http.request(method, url, { body, observe: 'response' }),
-      );
-      this.responses.update((state) => ({
-        ...state,
-        [key]: {
-          status: response.status,
-          ok: response.ok,
-          body: this.formatBody(response.body),
-        },
-      }));
-    } catch (error: unknown) {
-      const httpError = error instanceof HttpErrorResponse ? error : null;
-      this.responses.update((state) => ({
-        ...state,
-        [key]: {
-          status: httpError?.status ?? 0,
-          ok: false,
-          body: this.formatBody(httpError?.error ?? error),
-        },
-      }));
-    } finally {
-      this.loading.update((state) => ({ ...state, [key]: false }));
+      return JSON.parse(body);
+    } catch {
+      return body;
     }
   }
 
