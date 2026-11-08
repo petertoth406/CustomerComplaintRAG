@@ -1,4 +1,7 @@
-config
+/config/*
+!/config/chunking/
+/config/chunking/*
+!/config/chunking/*.yaml
 /output/
 /output_*/
 .venv

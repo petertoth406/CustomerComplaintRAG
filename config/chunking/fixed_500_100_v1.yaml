@@ -1,0 +1,7 @@
+id: fixed_500_100_v1
+strategy: fixed_token
+collection_name: complaints_fixed_500_100_v1
+tokenizer_model: BAAI/bge-m3
+tokenizer_revision: c400e3d69da76ed1965ea6ed67c83af69c3ff3a4
+max_tokens: 500
+overlap_tokens: 100
