@@ -1,5 +1,6 @@
 """Build statistics metadata from the file-based output dataset."""
 
+from collections import Counter
 from datetime import datetime, timezone
 from math import ceil
 import re
@@ -17,12 +18,16 @@ from app.schemas.chunking import ChunkConfig, ChunkRecord
 from app.schemas.statistics import (
     STATISTICS_SCHEMA_VERSION,
     ChunkConfigurationDescriptor,
+    ChunkDocumentOutlier,
+    ChunkQualityStatistics,
+    ChunkValidationIssue,
     ContentCounts,
     ContentLengthStatistics,
     DatasetChunkStatistics,
     DatasetDescriptor,
     DatasetSummary,
     DiscoveredPage,
+    HistogramBucket,
     LengthDistribution,
     PageChunkStatistics,
     PageStatistics,
@@ -174,9 +179,15 @@ class StatisticsService:
         )
 
     @classmethod
-    def _build_page_chunk_statistics(cls, documents_snapshot: DocumentsSnapshot, chunks_snapshot: ChunksSnapshot, config: ChunkConfig) -> PageChunkStatistics:
+    def _build_page_chunk_statistics(
+        cls,
+        documents_snapshot: DocumentsSnapshot,
+        chunks_snapshot: ChunksSnapshot,
+        config: ChunkConfig,
+    ) -> PageChunkStatistics:
         chunks = chunks_snapshot.chunks
         covered_document_ids = {chunk.document_id for chunk in chunks}
+        chunks_by_document = Counter(chunk.document_id for chunk in chunks)
         expected_document_ids = (
             {document.document_id for document in documents_snapshot.documents}
             if documents_snapshot.status in {"processed", "processed_empty"}
@@ -187,8 +198,49 @@ class StatisticsService:
             if expected_document_ids is not None
             else None
         )
-        if chunks_snapshot.status in {"missing", "invalid"}:
+        validation_issues = [
+            ChunkValidationIssue(
+                code=issue.code,
+                severity=(
+                    "error" if chunks_snapshot.status == "invalid" else "warning"
+                ),
+                message=issue.message,
+                line_number=issue.line_number,
+                affected_record_count=issue.affected_record_count,
+            )
+            for issue in chunks_snapshot.issues
+        ]
+        if chunks_snapshot.status == "available":
+            validation_issues.extend(
+                cls._validate_chunk_semantics(
+                    chunks,
+                    expected_document_ids,
+                    config,
+                )
+            )
+
+        freshness_status = cls._chunk_freshness_status(
+            documents_snapshot,
+            chunks_snapshot,
+        )
+        if freshness_status == "stale":
+            validation_issues.append(
+                ChunkValidationIssue(
+                    code="stale_chunk_file",
+                    severity="warning",
+                    message="A chunkfájl régebbi a dokumentumállománynál; újragenerálás javasolt.",
+                )
+            )
+
+        has_validation_error = any(
+            issue.severity == "error" for issue in validation_issues
+        )
+        if chunks_snapshot.status == "missing":
+            status = "missing"
+        elif chunks_snapshot.status == "invalid" or has_validation_error:
             status = chunks_snapshot.status
+            if status != "invalid":
+                status = "invalid"
         elif expected_document_ids is None:
             status = "unverifiable"
         elif missing_document_count:
@@ -202,9 +254,25 @@ class StatisticsService:
             document_count=len(covered_document_ids),
             chunk_count=len(chunks),
             missing_document_count=missing_document_count,
+            chunks_per_document=(
+                cls._calculate_distribution(
+                    list(chunks_by_document.values())
+                )
+                if expected_document_ids is not None
+                else None
+            ),
+            chunks_per_document_histogram=cls._calculate_discrete_histogram(
+                list(chunks_by_document.values())
+            ),
             token_lengths=cls._calculate_distribution(
                 [chunk.token_count for chunk in chunks]
             ),
+            token_length_histogram=cls._calculate_histogram(
+                [chunk.token_count for chunk in chunks]
+            ),
+            quality=cls._calculate_chunk_quality(chunks, config),
+            freshness_status=freshness_status,
+            validation_issues=validation_issues,
         )
 
     @staticmethod
@@ -337,6 +405,241 @@ class StatisticsService:
             percentile_95=nearest_rank(0.95),
         )
 
+    @staticmethod
+    def _calculate_histogram(
+        values: list[int],
+        bucket_count: int = 10,
+    ) -> list[HistogramBucket]:
+        if not values:
+            return []
+        maximum = max(values)
+        lower_origin = 0 if min(values) == 0 else 1
+        bucket_width = max(ceil((maximum - lower_origin + 1) / bucket_count), 1)
+        buckets: list[HistogramBucket] = []
+        lower = lower_origin
+        while lower <= maximum:
+            upper = min(lower + bucket_width - 1, maximum)
+            count = sum(lower <= value <= upper for value in values)
+            buckets.append(
+                HistogramBucket(
+                    label=str(lower) if lower == upper else f"{lower}–{upper}",
+                    minimum=lower,
+                    maximum=upper,
+                    count=count,
+                )
+            )
+            lower = upper + 1
+        return buckets
+
+    @staticmethod
+    def _calculate_discrete_histogram(values: list[int]) -> list[HistogramBucket]:
+        counts = Counter(values)
+        return [
+            HistogramBucket(
+                label=str(value),
+                minimum=value,
+                maximum=value,
+                count=count,
+            )
+            for value, count in sorted(counts.items())
+        ]
+
+    @staticmethod
+    def _chunk_freshness_status(
+        documents_snapshot: DocumentsSnapshot,
+        chunks_snapshot: ChunksSnapshot,
+    ) -> str:
+        if (
+            documents_snapshot.modified_at is None
+            or chunks_snapshot.modified_at is None
+        ):
+            return "unverifiable"
+        return (
+            "stale"
+            if chunks_snapshot.modified_at < documents_snapshot.modified_at
+            else "current"
+        )
+
+    @classmethod
+    def _validate_chunk_semantics(
+        cls,
+        chunks: tuple[ChunkRecord, ...],
+        expected_document_ids: set[str] | None,
+        config: ChunkConfig,
+    ) -> list[ChunkValidationIssue]:
+        issues: list[ChunkValidationIssue] = []
+        chunks_by_document: dict[str, list[ChunkRecord]] = {}
+        for chunk in chunks:
+            chunks_by_document.setdefault(chunk.document_id, []).append(chunk)
+
+        if expected_document_ids is not None:
+            orphan_document_ids = set(chunks_by_document) - expected_document_ids
+            if orphan_document_ids:
+                issues.append(
+                    ChunkValidationIssue(
+                        code="orphan_document",
+                        severity="error",
+                        message="A chunkfájl a dokumentumállományban nem szereplő dokumentumra hivatkozik.",
+                        affected_record_count=len(orphan_document_ids),
+                    )
+                )
+
+        strategy_mismatch_count = sum(
+            chunk.strategy != config.strategy for chunk in chunks
+        )
+        if strategy_mismatch_count:
+            issues.append(
+                ChunkValidationIssue(
+                    code="strategy_mismatch",
+                    severity="error",
+                    message="A chunkrekord stratégiája nem egyezik a konfigurációval.",
+                    affected_record_count=strategy_mismatch_count,
+                )
+            )
+
+        non_contiguous_document_count = 0
+        invalid_span_document_count = 0
+        for document_chunks in chunks_by_document.values():
+            ordered_chunks = sorted(
+                document_chunks,
+                key=lambda chunk: chunk.chunk_index,
+            )
+            if [chunk.chunk_index for chunk in ordered_chunks] != list(
+                range(1, len(ordered_chunks) + 1)
+            ):
+                non_contiguous_document_count += 1
+
+            if not ordered_chunks or ordered_chunks[0].token_start != 0:
+                invalid_span_document_count += 1
+                continue
+            if config.strategy == "structural":
+                if len(ordered_chunks) != 1:
+                    invalid_span_document_count += 1
+                continue
+            if any(
+                current.token_start
+                != previous.token_end - config.overlap_tokens
+                for previous, current in zip(
+                    ordered_chunks,
+                    ordered_chunks[1:],
+                )
+            ):
+                invalid_span_document_count += 1
+
+        if non_contiguous_document_count:
+            issues.append(
+                ChunkValidationIssue(
+                    code="non_contiguous_chunk_index",
+                    severity="error",
+                    message="Egy vagy több dokumentumnál a chunk_index sorozat nem folytonos.",
+                    affected_record_count=non_contiguous_document_count,
+                )
+            )
+        if invalid_span_document_count:
+            issues.append(
+                ChunkValidationIssue(
+                    code="invalid_token_span_sequence",
+                    severity="error",
+                    message="Egy vagy több dokumentumnál a tokentartományok kezdete vagy átfedése nem felel meg a konfigurációnak.",
+                    affected_record_count=invalid_span_document_count,
+                )
+            )
+
+        if config.max_tokens is not None:
+            oversized_chunk_count = sum(
+                chunk.token_count > config.max_tokens for chunk in chunks
+            )
+            if oversized_chunk_count:
+                issues.append(
+                    ChunkValidationIssue(
+                        code="token_limit_exceeded",
+                        severity="error",
+                        message="Egy vagy több chunk meghaladja a konfigurált tokenlimitet.",
+                        affected_record_count=oversized_chunk_count,
+                    )
+                )
+        return issues
+
+    @staticmethod
+    def _calculate_chunk_quality(
+        chunks: tuple[ChunkRecord, ...] | list[ChunkRecord],
+        config: ChunkConfig,
+    ) -> ChunkQualityStatistics:
+        stored_token_count = sum(chunk.token_count for chunk in chunks)
+        chunks_by_document: dict[str, list[ChunkRecord]] = {}
+        for chunk in chunks:
+            chunks_by_document.setdefault(chunk.document_id, []).append(chunk)
+
+        unique_token_count = 0
+        for document_chunks in chunks_by_document.values():
+            intervals = sorted(
+                (chunk.token_start, chunk.token_end)
+                for chunk in document_chunks
+            )
+            if not intervals:
+                continue
+            current_start, current_end = intervals[0]
+            for start, end in intervals[1:]:
+                if start <= current_end:
+                    current_end = max(current_end, end)
+                else:
+                    unique_token_count += current_end - current_start
+                    current_start, current_end = start, end
+            unique_token_count += current_end - current_start
+
+        overlap_token_count = max(stored_token_count - unique_token_count, 0)
+        if config.max_tokens is None:
+            average_fill_percent = None
+            full_chunk_count = None
+            full_chunk_percent = None
+            short_chunk_count = None
+            short_chunk_percent = None
+        else:
+            chunk_count = len(chunks)
+            average_fill_percent = (
+                round(
+                    fmean(
+                        chunk.token_count / config.max_tokens * 100
+                        for chunk in chunks
+                    ),
+                    2,
+                )
+                if chunks
+                else None
+            )
+            full_chunk_count = sum(
+                chunk.token_count == config.max_tokens for chunk in chunks
+            )
+            full_chunk_percent = (
+                round(full_chunk_count / chunk_count * 100, 2)
+                if chunk_count
+                else 0
+            )
+            short_chunk_count = sum(
+                chunk.token_count < config.max_tokens * 0.25 for chunk in chunks
+            )
+            short_chunk_percent = (
+                round(short_chunk_count / chunk_count * 100, 2)
+                if chunk_count
+                else 0
+            )
+
+        return ChunkQualityStatistics(
+            average_fill_percent=average_fill_percent,
+            full_chunk_count=full_chunk_count,
+            full_chunk_percent=full_chunk_percent,
+            short_chunk_count=short_chunk_count,
+            short_chunk_percent=short_chunk_percent,
+            unique_token_count=unique_token_count,
+            stored_token_count=stored_token_count,
+            overlap_token_count=overlap_token_count,
+            overlap_overhead_percent=(
+                round(overlap_token_count / unique_token_count * 100, 2)
+                if unique_token_count
+                else 0
+            ),
+        )
+
     @classmethod
     def _build_summary(
         cls,
@@ -410,7 +713,12 @@ class StatisticsService:
         )
 
     @classmethod
-    def _build_dataset_chunk_statistics(cls, pages: list[PageStatistics], config: ChunkConfig, chunks: list[ChunkRecord]) -> DatasetChunkStatistics:
+    def _build_dataset_chunk_statistics(
+        cls,
+        pages: list[PageStatistics],
+        config: ChunkConfig,
+        chunks: list[ChunkRecord],
+    ) -> DatasetChunkStatistics:
         page_statistics = [
             next(
                 item
@@ -437,6 +745,10 @@ class StatisticsService:
         missing_document_count = sum(
             item.missing_document_count or 0 for item in page_statistics
         )
+        chunks_by_document = Counter(chunk.document_id for chunk in chunks)
+        chunks_grouped_by_document: dict[str, list[ChunkRecord]] = {}
+        for chunk in chunks:
+            chunks_grouped_by_document.setdefault(chunk.document_id, []).append(chunk)
 
         if invalid_page_count:
             status = "invalid"
@@ -461,10 +773,74 @@ class StatisticsService:
             ),
             chunk_count=len(chunks),
             missing_document_count=missing_document_count,
+            chunks_per_document=cls._calculate_distribution(
+                list(chunks_by_document.values())
+            ),
+            single_chunk_document_count=sum(
+                chunk_count == 1 for chunk_count in chunks_by_document.values()
+            ),
+            multi_chunk_document_count=sum(
+                chunk_count > 1 for chunk_count in chunks_by_document.values()
+            ),
+            outlier_documents=cls._build_chunk_document_outliers(
+                chunks_grouped_by_document
+            ),
             token_lengths=cls._calculate_distribution(
                 [chunk.token_count for chunk in chunks]
             ),
+            chunks_per_document_histogram=cls._calculate_discrete_histogram(
+                list(chunks_by_document.values())
+            ),
+            token_length_histogram=cls._calculate_histogram(
+                [chunk.token_count for chunk in chunks]
+            ),
+            quality=cls._calculate_chunk_quality(chunks, config),
+            validation_error_count=sum(
+                issue.severity == "error"
+                for item in page_statistics
+                for issue in item.validation_issues
+            ),
+            validation_warning_count=sum(
+                issue.severity == "warning"
+                for item in page_statistics
+                for issue in item.validation_issues
+            ),
+            stale_page_count=sum(
+                item.freshness_status == "stale" for item in page_statistics
+            ),
         )
+
+    @staticmethod
+    def _build_chunk_document_outliers(
+        chunks_by_document: dict[str, list[ChunkRecord]],
+        limit: int = 10,
+    ) -> list[ChunkDocumentOutlier]:
+        ranked_documents = sorted(
+            (
+                document_chunks
+                for document_chunks in chunks_by_document.values()
+                if len(document_chunks) > 1
+            ),
+            key=lambda document_chunks: (
+                -len(document_chunks),
+                -sum(chunk.token_count for chunk in document_chunks),
+                document_chunks[0].document_id,
+            ),
+        )[:limit]
+        return [
+            ChunkDocumentOutlier(
+                document_id=document_chunks[0].document_id,
+                source_page=document_chunks[0].source_page,
+                source_page_id=document_chunks[0].source_page_id,
+                document_index=document_chunks[0].document_index,
+                source_url=document_chunks[0].source_url,
+                chunk_count=len(document_chunks),
+                total_token_count=sum(
+                    chunk.token_count for chunk in document_chunks
+                ),
+            )
+            for document_chunks in ranked_documents
+        ]
 
     def _get_tokenizer(self) -> TokenizerService:
         if self.tokenizer_service is None:

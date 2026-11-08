@@ -1,7 +1,7 @@
 """Read-only discovery of source-page directories in an output dataset."""
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -49,6 +49,7 @@ class SourceMetadataSnapshot:
 class DocumentsSnapshot:
     status: DocumentsStatus
     documents: tuple[CanonicalDocumentRecord, ...] = ()
+    modified_at: datetime | None = None
 
 
 ChunkFileStatus = Literal["available", "missing", "invalid"]
@@ -58,6 +59,16 @@ ChunkFileStatus = Literal["available", "missing", "invalid"]
 class ChunksSnapshot:
     status: ChunkFileStatus
     chunks: tuple[ChunkRecord, ...] = ()
+    modified_at: datetime | None = None
+    issues: tuple["ChunkSnapshotIssue", ...] = ()
+
+
+@dataclass(frozen=True)
+class ChunkSnapshotIssue:
+    code: str
+    message: str
+    line_number: int | None = None
+    affected_record_count: int = 1
 
 
 class OutputStatisticsRepository:
@@ -139,34 +150,118 @@ class OutputStatisticsRepository:
         return DocumentsSnapshot(
             status="processed" if documents else "processed_empty",
             documents=documents,
+            modified_at=datetime.fromtimestamp(
+                documents_path.stat().st_mtime,
+                tz=timezone.utc,
+            ),
         )
 
     def read_chunks(self, page: DiscoveredSourcePage, chunk_config_id: str) -> ChunksSnapshot:
         chunks_path = (self.output_dir / page.name / "chunks" / f"{chunk_config_id}.jsonl")
         
         if not chunks_path.is_file():
-            return ChunksSnapshot(status="missing")
+            return ChunksSnapshot(
+                status="missing",
+                issues=(
+                    ChunkSnapshotIssue(
+                        code="missing_file",
+                        message="A konfigurációhoz tartozó chunkfájl nem található.",
+                    ),
+                ),
+            )
 
         try:
             lines = chunks_path.read_text(encoding="utf-8").splitlines()
-            chunks = tuple(
-                ChunkRecord.model_validate(json.loads(line))
-                for line in lines
-                if line.strip()
+        except (OSError, UnicodeError) as error:
+            return ChunksSnapshot(
+                status="invalid",
+                issues=(
+                    ChunkSnapshotIssue(
+                        code="unreadable_file",
+                        message=f"A chunkfájl nem olvasható: {error}",
+                    ),
+                ),
             )
-            if any(
-                chunk.chunk_config_id != chunk_config_id
-                or chunk.source_page != page.name
-                for chunk in chunks
-            ):
-                return ChunksSnapshot(status="invalid")
-        except (
-            OSError,
-            UnicodeError,
-            json.JSONDecodeError,
-            TypeError,
-            ValidationError,
-        ):
-            return ChunksSnapshot(status="invalid")
 
-        return ChunksSnapshot(status="available", chunks=chunks)
+        parsed_chunks: list[ChunkRecord] = []
+        for line_number, line in enumerate(lines, start=1):
+            if not line.strip():
+                continue
+            try:
+                parsed_chunks.append(
+                    ChunkRecord.model_validate(json.loads(line))
+                )
+            except (json.JSONDecodeError, TypeError, ValidationError) as error:
+                return ChunksSnapshot(
+                    status="invalid",
+                    chunks=tuple(parsed_chunks),
+                    modified_at=datetime.fromtimestamp(
+                        chunks_path.stat().st_mtime,
+                        tz=timezone.utc,
+                    ),
+                    issues=(
+                        ChunkSnapshotIssue(
+                            code="invalid_record",
+                            message=f"A(z) {line_number}. chunkrekord érvénytelen: {error}",
+                            line_number=line_number,
+                        ),
+                    ),
+                )
+
+        chunks = tuple(parsed_chunks)
+        mismatched_config_count = sum(
+            chunk.chunk_config_id != chunk_config_id for chunk in chunks
+        )
+        if mismatched_config_count:
+            return ChunksSnapshot(
+                status="invalid",
+                chunks=chunks,
+                issues=(
+                    ChunkSnapshotIssue(
+                        code="configuration_mismatch",
+                        message="A chunkfájl más konfigurációhoz tartozó rekordot tartalmaz.",
+                        affected_record_count=mismatched_config_count,
+                    ),
+                ),
+            )
+
+        mismatched_page_count = sum(
+            chunk.source_page != page.name for chunk in chunks
+        )
+        if mismatched_page_count:
+            return ChunksSnapshot(
+                status="invalid",
+                chunks=chunks,
+                issues=(
+                    ChunkSnapshotIssue(
+                        code="source_page_mismatch",
+                        message="A chunkfájl más forrásoldalhoz tartozó rekordot tartalmaz.",
+                        affected_record_count=mismatched_page_count,
+                    ),
+                ),
+            )
+
+        duplicate_chunk_count = len(chunks) - len(
+            {chunk.chunk_id for chunk in chunks}
+        )
+        if duplicate_chunk_count:
+            return ChunksSnapshot(
+                status="invalid",
+                chunks=chunks,
+                issues=(
+                    ChunkSnapshotIssue(
+                        code="duplicate_chunk_id",
+                        message="A chunkfájl duplikált chunkazonosítót tartalmaz.",
+                        affected_record_count=duplicate_chunk_count,
+                    ),
+                ),
+            )
+
+        return ChunksSnapshot(
+            status="available",
+            chunks=chunks,
+            modified_at=datetime.fromtimestamp(
+                chunks_path.stat().st_mtime,
+                tz=timezone.utc,
+            ),
+        )

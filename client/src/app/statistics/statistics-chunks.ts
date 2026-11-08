@@ -1,26 +1,25 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, HostListener, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import {
   chunkConfigurationDescription,
   chunkConfigurationLabel,
-  chunkStatusLabel,
 } from './chunk-statistics.presenter';
 import {
   ChunkConfigurationDescriptor,
   DatasetChunkStatistics,
   PageChunkStatistics,
-  PageStatistics,
   StatisticsResponse,
 } from './statistics.models';
+import { HistogramChart } from './histogram-chart';
 import { StatisticsStore } from './statistics.store';
 
-type ChunkStatusFilter = 'all' | PageChunkStatistics['status'];
+type DistributionScope = 'dataset' | 'page';
 
 @Component({
   selector: 'app-statistics-chunks',
-  imports: [DatePipe, DecimalPipe, FormsModule],
+  imports: [DatePipe, DecimalPipe, FormsModule, HistogramChart],
   templateUrl: './statistics-chunks.html',
 })
 export class StatisticsChunks implements OnInit {
@@ -28,26 +27,47 @@ export class StatisticsChunks implements OnInit {
   readonly statistics = this.store.statistics;
   readonly loading = this.store.loading;
   readonly error = this.store.error;
-  readonly includeTokens = this.store.includeTokens;
 
   readonly selectedConfigId = signal<string | null>(null);
-  readonly statusFilter = signal<ChunkStatusFilter>('all');
-  readonly selectedPage = signal<PageStatistics | null>(null);
-  readonly modalConfigId = signal<string | null>(null);
-
-  readonly filteredPages = computed(() => {
+  readonly distributionScope = signal<DistributionScope>('dataset');
+  readonly selectedPageName = signal<string | null>(null);
+  readonly selectedSummary = computed(() => {
     const data = this.statistics();
-    const status = this.statusFilter();
     const configId = this.selectedConfigId();
-    if (!data || status === 'all') {
-      return data?.pages ?? [];
+    if (!data || !configId) {
+      return undefined;
     }
-    return data.pages.filter((page) => {
-      const statistics = configId
-        ? [this.pageChunkStatistics(page, configId)]
-        : (page.chunk_statistics ?? []);
-      return statistics.some((item) => item?.status === status);
-    });
+    return this.summaryFor(data, configId);
+  });
+  readonly selectedConfiguration = computed(() => {
+    const data = this.statistics();
+    const configId = this.selectedConfigId();
+    return data?.chunk_configurations.find(
+      (configuration) => configuration.chunk_config_id === configId,
+    );
+  });
+  readonly availablePages = computed(() => {
+    const data = this.statistics();
+    const configId = this.selectedConfigId();
+    if (!data || !configId) {
+      return [];
+    }
+    return data.pages.filter(
+      (page) => (this.pageChunkStatistics(page, configId)?.chunk_count ?? 0) > 0,
+    );
+  });
+  readonly selectedPage = computed(() =>
+    this.availablePages().find((page) => page.page === this.selectedPageName()),
+  );
+  readonly selectedDistribution = computed<
+    DatasetChunkStatistics | PageChunkStatistics | undefined
+  >(() => {
+    if (this.distributionScope() === 'dataset') {
+      return this.selectedSummary();
+    }
+    const page = this.selectedPage();
+    const configId = this.selectedConfigId();
+    return page && configId ? this.pageChunkStatistics(page, configId) : undefined;
   });
 
   ngOnInit(): void {
@@ -55,34 +75,22 @@ export class StatisticsChunks implements OnInit {
   }
 
   async load(): Promise<void> {
-    this.closeModal();
     await this.store.refresh();
     this.ensureSelection();
   }
 
   selectConfiguration(configId: string): void {
     this.selectedConfigId.set(configId);
+    this.ensurePageSelection();
   }
 
-  showAllConfigurations(): void {
-    this.selectedConfigId.set(null);
+  selectScope(scope: DistributionScope): void {
+    this.distributionScope.set(scope);
+    this.ensurePageSelection();
   }
 
-  openPage(page: PageStatistics, configId?: string): void {
-    const fallback = this.selectedConfigId()
-      ?? this.statistics()?.chunk_configurations[0]?.chunk_config_id
-      ?? null;
-    this.modalConfigId.set(configId ?? fallback);
-    this.selectedPage.set(page);
-  }
-
-  closeModal(): void {
-    this.selectedPage.set(null);
-  }
-
-  @HostListener('document:keydown.escape')
-  closeModalOnEscape(): void {
-    this.closeModal();
+  selectPage(pageName: string): void {
+    this.selectedPageName.set(pageName);
   }
 
   configurationLabel(configuration: ChunkConfigurationDescriptor): string {
@@ -93,50 +101,55 @@ export class StatisticsChunks implements OnInit {
     return chunkConfigurationDescription(configuration);
   }
 
-  statusLabel(status: PageChunkStatistics['status']): string {
-    return chunkStatusLabel(status);
-  }
-
-  summaryFor(
-    data: StatisticsResponse,
-    configId: string,
-  ): DatasetChunkStatistics | undefined {
-    return data.summary.chunk_statistics?.find(
+  summaryFor(data: StatisticsResponse, configId: string): DatasetChunkStatistics | undefined {
+    return data.summary.chunk_statistics.find(
       (statistics) => statistics.chunk_config_id === configId,
     );
   }
 
   pageChunkStatistics(
-    page: PageStatistics,
+    page: StatisticsResponse['pages'][number],
     configId: string,
   ): PageChunkStatistics | undefined {
-    return page.chunk_statistics?.find(
-      (statistics) => statistics.chunk_config_id === configId,
-    );
+    return page.chunk_statistics.find((statistics) => statistics.chunk_config_id === configId);
   }
 
-  modalConfiguration(
-    data: StatisticsResponse,
-  ): ChunkConfigurationDescriptor | undefined {
-    return data.chunk_configurations.find(
-      (configuration) => configuration.chunk_config_id === this.modalConfigId(),
-    );
+  distributionTitle(): string {
+    return this.distributionScope() === 'dataset'
+      ? 'Teljes állomány'
+      : (this.selectedPage()?.page ?? 'Nincs kiválasztott oldal');
   }
 
-  hasChunkStatistics(data: StatisticsResponse): boolean {
-    return Array.isArray(data.chunk_configurations)
-      && data.chunk_configurations.length > 0;
+  singleChunkRate(summary: DatasetChunkStatistics): number {
+    return this.documentRatio(summary.single_chunk_document_count, summary);
+  }
+
+  multiChunkRate(summary: DatasetChunkStatistics): number {
+    return this.documentRatio(summary.multi_chunk_document_count, summary);
+  }
+
+  private documentRatio(documentCount: number, summary: DatasetChunkStatistics): number {
+    const coveredCount = summary.single_chunk_document_count + summary.multi_chunk_document_count;
+    return coveredCount === 0 ? 0 : (documentCount / coveredCount) * 100;
   }
 
   private ensureSelection(): void {
     const configurations = this.statistics()?.chunk_configurations ?? [];
     if (
-      this.selectedConfigId()
-      && !configurations.some(
+      !this.selectedConfigId() ||
+      !configurations.some(
         (configuration) => configuration.chunk_config_id === this.selectedConfigId(),
       )
     ) {
-      this.selectedConfigId.set(null);
+      this.selectedConfigId.set(configurations[0]?.chunk_config_id ?? null);
+    }
+    this.ensurePageSelection();
+  }
+
+  private ensurePageSelection(): void {
+    const pages = this.availablePages();
+    if (!pages.some((page) => page.page === this.selectedPageName())) {
+      this.selectedPageName.set(pages[0]?.page ?? null);
     }
   }
 }

@@ -9,6 +9,33 @@ export interface LengthDistribution {
   percentile_95: number | null;
 }
 
+export interface HistogramBucket {
+  label: string;
+  minimum: number;
+  maximum: number;
+  count: number;
+}
+
+export interface ChunkQualityStatistics {
+  average_fill_percent: number | null;
+  full_chunk_count: number | null;
+  full_chunk_percent: number | null;
+  short_chunk_count: number | null;
+  short_chunk_percent: number | null;
+  unique_token_count: number;
+  stored_token_count: number;
+  overlap_token_count: number;
+  overlap_overhead_percent: number;
+}
+
+export interface ChunkValidationIssue {
+  code: string;
+  severity: 'warning' | 'error';
+  message: string;
+  line_number: number | null;
+  affected_record_count: number;
+}
+
 export interface TextLengthStatistics {
   characters: LengthDistribution;
   words: LengthDistribution;
@@ -38,7 +65,13 @@ export interface PageChunkStatistics {
   document_count: number;
   chunk_count: number;
   missing_document_count: number | null;
+  chunks_per_document?: LengthDistribution | null;
+  chunks_per_document_histogram: HistogramBucket[];
   token_lengths: LengthDistribution;
+  token_length_histogram: HistogramBucket[];
+  quality: ChunkQualityStatistics;
+  freshness_status: 'current' | 'stale' | 'unverifiable';
+  validation_issues: ChunkValidationIssue[];
 }
 
 export interface DatasetChunkStatistics {
@@ -53,7 +86,27 @@ export interface DatasetChunkStatistics {
   document_count: number;
   chunk_count: number;
   missing_document_count: number;
+  chunks_per_document?: LengthDistribution;
+  single_chunk_document_count: number;
+  multi_chunk_document_count: number;
+  outlier_documents: ChunkDocumentOutlier[];
   token_lengths: LengthDistribution;
+  chunks_per_document_histogram: HistogramBucket[];
+  token_length_histogram: HistogramBucket[];
+  quality: ChunkQualityStatistics;
+  validation_error_count: number;
+  validation_warning_count: number;
+  stale_page_count: number;
+}
+
+export interface ChunkDocumentOutlier {
+  document_id: string;
+  source_page: string;
+  source_page_id: number | null;
+  document_index: number;
+  source_url: string;
+  chunk_count: number;
+  total_token_count: number;
 }
 
 export interface ContentCounts {
@@ -72,11 +125,7 @@ export interface PageStatistics {
   source_url: string | null;
   downloaded_at: string | null;
   download_status: 'available' | 'missing' | 'invalid';
-  processing_status:
-    | 'processed'
-    | 'processed_empty'
-    | 'not_processed'
-    | 'invalid';
+  processing_status: 'processed' | 'processed_empty' | 'not_processed' | 'invalid';
   content: ContentCounts;
   lengths: ContentLengthStatistics | null;
   chunk_statistics: PageChunkStatistics[];
@@ -114,4 +163,3 @@ export interface StatisticsResponse {
   summary: DatasetSummary;
   pages: PageStatistics[];
 }
-

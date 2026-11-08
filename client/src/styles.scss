@@ -4,7 +4,12 @@
 
 html {
   font-family:
-    Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    Inter,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   color-scheme: light;
   background: #f1f5f9;
 }
@@ -168,6 +173,62 @@ select {
   font-size: 0.7rem;
 }
 
+.collapsible-panel > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.collapsible-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.collapsible-panel:not([open]) > summary {
+  border-bottom: 0;
+}
+
+.collapsible-panel-hint {
+  color: #2563eb;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.collapsible-panel .when-open {
+  display: none;
+}
+
+.collapsible-panel[open] .when-closed {
+  display: none;
+}
+
+.collapsible-panel[open] .when-open {
+  display: inline;
+}
+
+.processing-issues-table td:nth-child(5) {
+  min-width: 22rem;
+  white-space: normal;
+}
+
+.processing-issues-table td:nth-child(5),
+.processing-issues-table td:nth-child(2) {
+  text-align: left;
+}
+
+.issue-severity {
+  display: inline-flex;
+  padding: 0.25rem 0.45rem;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+
+.issue-severity[data-severity='error'] {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .chunk-config-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -209,6 +270,12 @@ select {
   gap: 0.75rem;
 }
 
+.chunk-card-heading > span:not(.chunk-status) {
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
 .chunk-config-card small {
   min-height: 2.2rem;
   color: #64748b;
@@ -241,22 +308,22 @@ select {
   white-space: nowrap;
 }
 
-.chunk-status[data-status="complete"] {
+.chunk-status[data-status='complete'] {
   background: #dcfce7;
   color: #166534;
 }
 
-.chunk-status[data-status="partial"] {
+.chunk-status[data-status='partial'] {
   background: #fef3c7;
   color: #92400e;
 }
 
-.chunk-status[data-status="invalid"] {
+.chunk-status[data-status='invalid'] {
   background: #fee2e2;
   color: #991b1b;
 }
 
-.chunk-status[data-status="unverifiable"] {
+.chunk-status[data-status='unverifiable'] {
   background: #dbeafe;
   color: #1e40af;
 }
@@ -508,6 +575,213 @@ select {
 .chunk-cell small {
   color: #64748b;
   font-size: 0.65rem;
+}
+
+.chunk-cell-static {
+  display: inline-grid;
+  justify-items: center;
+  gap: 0.25rem;
+}
+
+.chunk-cell-static small {
+  color: #64748b;
+  font-size: 0.65rem;
+}
+
+.chunk-cell-static .chunk-issue {
+  max-width: 15rem;
+  color: #a16207;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.chunk-cell-static .chunk-issue.error {
+  color: #b91c1c;
+}
+
+.distribution-heading {
+  align-items: center;
+}
+
+.distribution-controls,
+.scope-switch {
+  display: flex;
+  align-items: end;
+  gap: 0.5rem;
+}
+
+.scope-switch {
+  padding: 0.25rem;
+  border: 1px solid #dbe2ea;
+  border-radius: 0.6rem;
+  background: #f8fafc;
+}
+
+.scope-switch button {
+  padding: 0.45rem 0.7rem;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.scope-switch button.active {
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.distribution-controls label {
+  display: grid;
+  gap: 0.25rem;
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.distribution-controls select {
+  min-width: 10rem;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.45rem;
+  background: #fff;
+  color: #334155;
+  font-size: 0.76rem;
+}
+
+.distribution-summary,
+.chunk-quality-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 1rem 1.25rem 0;
+}
+
+.distribution-summary article,
+.chunk-quality-grid article {
+  padding: 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.65rem;
+  background: #f8fafc;
+}
+
+.distribution-summary span,
+.distribution-summary strong,
+.chunk-quality-grid span,
+.chunk-quality-grid strong,
+.chunk-quality-grid small {
+  display: block;
+}
+
+.distribution-summary span,
+.chunk-quality-grid span,
+.chunk-quality-grid small {
+  color: #64748b;
+  font-size: 0.68rem;
+}
+
+.distribution-summary strong,
+.chunk-quality-grid strong {
+  margin-top: 0.3rem;
+  color: #0f172a;
+  font-size: 1rem;
+}
+
+.chunk-quality-grid small {
+  margin-top: 0.25rem;
+}
+
+.chunk-quality-grid .info-tooltip {
+  display: inline-flex;
+  color: #475569;
+}
+
+.chunk-quality-grid .info-tooltip-content {
+  display: none;
+  color: #fff;
+}
+
+.stats-table .info-tooltip-content {
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.histogram-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+.histogram-card {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+}
+
+.histogram-heading h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 0.95rem;
+}
+
+.histogram-heading p,
+.histogram-empty {
+  margin: 0.35rem 0 0;
+  color: #64748b;
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.histogram {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 1rem;
+}
+
+.histogram-row {
+  display: grid;
+  grid-template-columns: minmax(5rem, auto) minmax(5rem, 1fr) 3.5rem;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.68rem;
+}
+
+.histogram-label {
+  color: #475569;
+  white-space: nowrap;
+}
+
+.histogram-track {
+  height: 0.65rem;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.histogram-bar {
+  display: block;
+  min-width: 0.2rem;
+  height: 100%;
+  border-radius: inherit;
+  background: #3b82f6;
+}
+
+.histogram-row strong {
+  color: #0f172a;
+  text-align: right;
+}
+
+.stats-table a {
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.chunk-document-distribution {
+  margin-bottom: 1.5rem;
 }
 
 .empty-table {
@@ -848,6 +1122,17 @@ select {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .distribution-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .distribution-summary,
+  .chunk-quality-grid,
+  .histogram-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .chunk-filters {
     display: grid;
   }
@@ -875,6 +1160,7 @@ select {
 
   .stats-tabs {
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .stats-tabs a {
@@ -884,6 +1170,12 @@ select {
 
   .chunk-detail-header,
   .chunk-config-definition dl {
+    grid-template-columns: 1fr;
+  }
+
+  .distribution-summary,
+  .chunk-quality-grid,
+  .histogram-grid {
     grid-template-columns: 1fr;
   }
 }

@@ -1,0 +1,21 @@
+<section class="histogram-card">
+  <div class="histogram-heading">
+    <h3>{{ title() }}</h3>
+    <p>{{ description() }}</p>
+  </div>
+  @if (buckets().length) {
+    <div class="histogram" role="img" [attr.aria-label]="title() + ': ' + description()">
+      @for (bucket of buckets(); track bucket.label) {
+        <div class="histogram-row">
+          <span class="histogram-label">{{ bucket.label }} {{ unit() }}</span>
+          <span class="histogram-track" aria-hidden="true">
+            <span class="histogram-bar" [style.width.%]="barWidth(bucket.count)"></span>
+          </span>
+          <strong>{{ bucket.count | number }}</strong>
+        </div>
+      }
+    </div>
+  } @else {
+    <p class="histogram-empty">Nincs megjeleníthető adat.</p>
+  }
+</section>

@@ -6,8 +6,8 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-StatisticsSchemaVersion = Literal["1.1"]
-STATISTICS_SCHEMA_VERSION: StatisticsSchemaVersion = "1.1"
+StatisticsSchemaVersion = Literal["1.3"]
+STATISTICS_SCHEMA_VERSION: StatisticsSchemaVersion = "1.3"
 
 
 class DiscoveredPage(BaseModel):
@@ -47,6 +47,33 @@ class LengthDistribution(BaseModel):
     percentile_95: int | None = Field(default=None, ge=0)
 
 
+class HistogramBucket(BaseModel):
+    label: str = Field(min_length=1)
+    minimum: int = Field(ge=0)
+    maximum: int = Field(ge=0)
+    count: int = Field(ge=0)
+
+
+class ChunkQualityStatistics(BaseModel):
+    average_fill_percent: float | None = Field(default=None, ge=0)
+    full_chunk_count: int | None = Field(default=None, ge=0)
+    full_chunk_percent: float | None = Field(default=None, ge=0)
+    short_chunk_count: int | None = Field(default=None, ge=0)
+    short_chunk_percent: float | None = Field(default=None, ge=0)
+    unique_token_count: int = Field(ge=0)
+    stored_token_count: int = Field(ge=0)
+    overlap_token_count: int = Field(ge=0)
+    overlap_overhead_percent: float = Field(ge=0)
+
+
+class ChunkValidationIssue(BaseModel):
+    code: str = Field(min_length=1)
+    severity: Literal["warning", "error"]
+    message: str = Field(min_length=1)
+    line_number: int | None = Field(default=None, ge=1)
+    affected_record_count: int = Field(default=1, ge=1)
+
+
 class TextLengthStatistics(BaseModel):
     characters: LengthDistribution
     words: LengthDistribution
@@ -82,7 +109,23 @@ class PageChunkStatistics(BaseModel):
     document_count: int = Field(ge=0)
     chunk_count: int = Field(ge=0)
     missing_document_count: int | None = Field(default=None, ge=0)
+    chunks_per_document: LengthDistribution | None = None
+    chunks_per_document_histogram: list[HistogramBucket]
     token_lengths: LengthDistribution
+    token_length_histogram: list[HistogramBucket]
+    quality: ChunkQualityStatistics
+    freshness_status: Literal["current", "stale", "unverifiable"]
+    validation_issues: list[ChunkValidationIssue]
+
+
+class ChunkDocumentOutlier(BaseModel):
+    document_id: str = Field(min_length=1)
+    source_page: str = Field(pattern=r"^levelek(?:[1-9]\d*)?$")
+    source_page_id: int | None = Field(default=None, ge=1)
+    document_index: int = Field(ge=1)
+    source_url: str = Field(min_length=1)
+    chunk_count: int = Field(ge=1)
+    total_token_count: int = Field(ge=0)
 
 
 class DatasetChunkStatistics(BaseModel):
@@ -97,7 +140,17 @@ class DatasetChunkStatistics(BaseModel):
     document_count: int = Field(ge=0)
     chunk_count: int = Field(ge=0)
     missing_document_count: int = Field(ge=0)
+    chunks_per_document: LengthDistribution
+    single_chunk_document_count: int = Field(ge=0)
+    multi_chunk_document_count: int = Field(ge=0)
+    outlier_documents: list[ChunkDocumentOutlier]
     token_lengths: LengthDistribution
+    chunks_per_document_histogram: list[HistogramBucket]
+    token_length_histogram: list[HistogramBucket]
+    quality: ChunkQualityStatistics
+    validation_error_count: int = Field(ge=0)
+    validation_warning_count: int = Field(ge=0)
+    stale_page_count: int = Field(ge=0)
 
 
 class PageStatistics(BaseModel):
