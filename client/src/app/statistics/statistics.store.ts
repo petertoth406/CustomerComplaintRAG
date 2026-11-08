@@ -8,28 +8,29 @@ import { StatisticsResponse } from './statistics.models';
 @Injectable({ providedIn: 'root' })
 export class StatisticsStore {
   private readonly api = inject(StatisticsApiService);
+  private pendingRequest?: Promise<void>;
 
   readonly statistics = signal<StatisticsResponse | null>(null);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly includeTokens = signal(false);
 
-  async ensureLoaded(): Promise<void> {
-    if (this.statistics() || this.loading()) {
-      return;
+  ensureLoaded(): Promise<void> {
+    if (this.pendingRequest) {
+      return this.pendingRequest;
     }
-    await this.fetch();
+    return this.statistics() ? Promise.resolve() : this.refresh();
   }
 
-  async refresh(): Promise<void> {
-    await this.fetch();
+  refresh(): Promise<void> {
+    this.pendingRequest ??= this.fetch().finally(() => {
+      this.pendingRequest = undefined;
+      this.loading.set(false);
+    });
+    return this.pendingRequest;
   }
 
   private async fetch(): Promise<void> {
-    if (this.loading()) {
-      return;
-    }
-
     this.loading.set(true);
     this.error.set(null);
     try {
@@ -38,8 +39,6 @@ export class StatisticsStore {
       );
     } catch (error: unknown) {
       this.error.set(this.errorMessage(error));
-    } finally {
-      this.loading.set(false);
     }
   }
 

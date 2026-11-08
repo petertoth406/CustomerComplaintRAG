@@ -60,12 +60,14 @@ export class ApiConsole {
 
   async runFullPipeline(): Promise<void> {
     const key: RequestKey = 'fullPipeline';
+    const pageSelection = this.selectionPayload();
+    const chunkConfigIds = this.selectedChunkConfigIds();
     this.loading.update((state) => ({ ...state, [key]: true }));
     this.clearResponse(key);
 
     try {
       const preprocessing = await this.request('POST', '/api/v1/preprocessing/run', {
-        ...this.selectionPayload(),
+        ...pageSelection,
         timestamp: false,
       });
 
@@ -81,8 +83,8 @@ export class ApiConsole {
       }
 
       const embeddings = await this.request('POST', '/api/v1/preprocessing/embeddings', {
-        ...this.selectionPayload(),
-        chunk_config_ids: this.selectedChunkConfigIds(),
+        ...pageSelection,
+        chunk_config_ids: chunkConfigIds,
       });
 
       this.setResponse(key, {
