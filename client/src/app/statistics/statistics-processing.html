@@ -1,0 +1,274 @@
+<section class="stats-toolbar" aria-label="Feldolgozási állapot frissítése">
+  <div>
+    <strong>Feldolgozási állapot</strong>
+    <span>A forrás-, dokumentum- és chunkfájlok elérhetősége és lefedettsége.</span>
+  </div>
+  <div class="stats-actions">
+    <button type="button" (click)="load()" [disabled]="loading()">
+      {{ loading() ? 'Betöltés…' : 'Frissítés' }}
+    </button>
+  </div>
+</section>
+
+@if (error(); as message) {
+  <div class="stats-alert error" role="alert">{{ message }}</div>
+}
+
+@if (loading() && !statistics()) {
+  <div class="stats-loading">A feldolgozási állapot betöltése folyamatban…</div>
+} @else if (statistics(); as data) {
+  <section class="stats-meta">
+    <span><strong>Adathalmaz:</strong> {{ data.dataset.dataset_id }}</span>
+    <span
+      ><strong>Generálva:</strong> {{ data.generated_at | date: 'yyyy. MM. dd. HH:mm:ss' }}</span
+    >
+    <span><strong>Sémaverzió:</strong> {{ data.statistics_schema_version }}</span>
+  </section>
+
+  <section class="stats-kpis processing-kpis" aria-label="Feldolgozási összesítés">
+    <article class="stats-kpi">
+      <span>Felismert oldalak</span>
+      <strong>{{ data.summary.page_directory_count | number }}</strong>
+      <small
+        >{{ data.dataset.first_page_id }}–{{ data.dataset.last_page_id }} numerikus
+        oldaltartomány</small
+      >
+    </article>
+    <article
+      class="stats-kpi"
+      [class.warning]="data.summary.downloaded_page_count !== data.summary.page_directory_count"
+    >
+      <span>Letöltött oldalak</span>
+      <strong>{{ data.summary.downloaded_page_count | number }}</strong>
+      <small
+        >{{ data.summary.missing_source_metadata_count }} hiányzó ·
+        {{ data.summary.invalid_source_metadata_count }} hibás metaadat</small
+      >
+    </article>
+    <article
+      class="stats-kpi"
+      [class.warning]="data.summary.processed_page_count !== data.summary.page_directory_count"
+    >
+      <span>Feldolgozott oldalak</span>
+      <strong>{{ data.summary.processed_page_count | number }}</strong>
+      <small
+        >{{ data.summary.not_processed_page_count }} feldolgozatlan ·
+        {{ data.summary.invalid_documents_file_count }} hibás</small
+      >
+    </article>
+  </section>
+
+  <section class="chunk-config-grid" aria-label="Chunkfájlok lefedettsége">
+    @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+      @if (summaryFor(data, configuration.chunk_config_id); as summary) {
+        <button
+          type="button"
+          class="chunk-config-card"
+          [class.selected]="selectedConfigId() === configuration.chunk_config_id"
+          (click)="selectConfiguration(configuration.chunk_config_id)"
+        >
+          <span class="chunk-card-heading">
+            <strong>{{ configurationLabel(configuration) }}</strong>
+            <span class="chunk-status" [attr.data-status]="summary.status">{{
+              summary.status === 'complete'
+                ? 'Teljes'
+                : summary.status === 'partial'
+                  ? 'Részleges'
+                  : summary.status === 'invalid'
+                    ? 'Hibás'
+                    : 'Hiányzik'
+            }}</span>
+          </span>
+          <small>{{ configurationDescription(configuration) }}</small>
+          <span class="chunk-card-metrics">
+            <span
+              ><b>{{ summary.complete_page_count }}</b> / {{ summary.page_count }} teljes
+              oldal</span
+            >
+            <span
+              ><b>{{ summary.document_count | number }}</b> /
+              {{ summary.document_count + summary.missing_document_count | number }} lefedett
+              dokumentum</span
+            >
+            <span
+              ><b>{{ summary.missing_document_count | number }}</b> chunk nélküli dokumentum</span
+            >
+            <span
+              ><b>{{ coverage(summary) | number: '1.1-1' }}%</b> dokumentumlefedettség</span
+            >
+            <span
+              ><b>{{ summary.validation_error_count }}</b> hiba ·
+              <b>{{ summary.validation_warning_count }}</b> figyelmeztetés</span
+            >
+            <span
+              ><b>{{ summary.stale_page_count }}</b> elavult chunkfájl</span
+            >
+          </span>
+        </button>
+      }
+    }
+  </section>
+
+  <details class="stats-panel collapsible-panel">
+    <summary class="stats-panel-heading">
+      <div>
+        <p class="stats-eyebrow">Ellenőrzési eltérések</p>
+        <h2>Konkrét hibák és figyelmeztetések</h2>
+      </div>
+      <span class="collapsible-panel-hint when-closed"
+        >{{ issueRows().length }} eltérés · Megtekintés</span
+      >
+      <span class="collapsible-panel-hint when-open">Elrejtés</span>
+    </summary>
+    <div class="stats-table-wrap">
+      <table class="stats-table processing-issues-table">
+        <thead>
+          <tr>
+            <th>Oldal</th>
+            <th>Konfiguráció</th>
+            <th>Súlyosság</th>
+            <th>Típus</th>
+            <th>Magyarázat</th>
+            <th>Érintett rekord</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (issue of issueRows(); track issue.page + issue.chunkConfigId + issue.code) {
+            <tr>
+              <th>{{ issue.page }}</th>
+              <td>
+                <code>{{ issue.chunkConfigId }}</code>
+              </td>
+              <td>
+                <span class="issue-severity" [attr.data-severity]="issue.severity">{{
+                  issueSeverityLabel(issue.severity)
+                }}</span>
+              </td>
+              <td>{{ issueTypeLabel(issue.code) }}</td>
+              <td>
+                {{ issue.message }}
+                @if (issue.lineNumber) {
+                  <small>({{ issue.lineNumber }}. sor)</small>
+                }
+              </td>
+              <td>{{ issue.affectedRecordCount | number }}</td>
+            </tr>
+          } @empty {
+            <tr>
+              <td class="empty-table" colspan="6">
+                A kiválasztott konfigurációhoz nincs ellenőrzési eltérés.
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </details>
+
+  <section class="stats-panel">
+    <div class="stats-panel-heading chunk-page-heading">
+      <div>
+        <p class="stats-eyebrow">Feldolgozási mátrix</p>
+        <h2>Állapot forrásoldalanként</h2>
+      </div>
+      <div class="chunk-filters">
+        <label>
+          <span>Konfiguráció</span>
+          <select
+            [ngModel]="selectedConfigId()"
+            (ngModelChange)="$event === '' ? showAllConfigurations() : selectConfiguration($event)"
+          >
+            <option value="">Minden konfiguráció</option>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              <option [value]="configuration.chunk_config_id">
+                {{ configurationLabel(configuration) }}
+              </option>
+            }
+          </select>
+        </label>
+        <label>
+          <span>Chunkállapot</span>
+          <select [ngModel]="statusFilter()" (ngModelChange)="statusFilter.set($event)">
+            <option value="all">Minden állapot</option>
+            <option value="complete">Teljes</option>
+            <option value="partial">Részleges</option>
+            <option value="missing">Hiányzik</option>
+            <option value="invalid">Hibás</option>
+            <option value="unverifiable">Nem ellenőrizhető</option>
+            <option value="issues">Van ellenőrzési eltérés</option>
+            <option value="stale">Elavult chunkfájl</option>
+          </select>
+        </label>
+      </div>
+    </div>
+    <div class="stats-table-wrap">
+      <table class="stats-table chunk-page-table">
+        <thead>
+          <tr>
+            <th>Oldal</th>
+            <th>Letöltés</th>
+            <th>Dokumentumok</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              <th>{{ configurationLabel(configuration) }}</th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          @for (page of filteredPages(); track page.page) {
+            <tr>
+              <th>{{ page.page }}</th>
+              <td>
+                <span
+                  class="status-badge"
+                  [class.ok]="page.download_status === 'available'"
+                  [class.bad]="page.download_status !== 'available'"
+                  >{{ downloadStatusLabel(page) }}</span
+                >
+              </td>
+              <td>
+                <span
+                  class="status-badge"
+                  [class.ok]="page.processing_status === 'processed'"
+                  [class.bad]="page.processing_status === 'invalid'"
+                  >{{ processingStatusLabel(page) }}</span
+                >
+              </td>
+              @for (
+                configuration of data.chunk_configurations;
+                track configuration.chunk_config_id
+              ) {
+                @if (pageChunkStatistics(page, configuration.chunk_config_id); as value) {
+                  <td>
+                    <div class="chunk-cell-static">
+                      <span class="chunk-status" [attr.data-status]="value.status">{{
+                        statusLabel(value.status)
+                      }}</span>
+                      <small
+                        >{{ value.document_count | number }} lefedett ·
+                        {{ value.missing_document_count ?? '—' }} chunk nélküli</small
+                      >
+                      <small>{{ value.chunk_count | number }} chunk</small>
+                      @if (issueSummary(value); as issue) {
+                        <small
+                          class="chunk-issue"
+                          [class.error]="value.validation_issues[0].severity === 'error'"
+                          >{{ issue }}</small
+                        >
+                      }
+                    </div>
+                  </td>
+                }
+              }
+            </tr>
+          } @empty {
+            <tr>
+              <td class="empty-table" [attr.colspan]="data.chunk_configurations.length + 3">
+                Nincs a szűrésnek megfelelő forrásoldal.
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+}

@@ -1,0 +1,41 @@
+<section class="length-distribution">
+  <h3>
+    {{ title() }}
+    <span class="info-tooltip" tabindex="0" aria-label="További információ">
+      i
+      <span class="info-tooltip-content" role="tooltip">{{ description() }}</span>
+    </span>
+  </h3>
+  <div class="stats-table-wrap">
+    <table class="stats-table compact distribution-table">
+      <thead>
+        <tr>
+          <th>Mértékegység</th>
+          <th>Darab</th>
+          <th>Összesen</th>
+          <th>Minimum</th>
+          <th>Átlag</th>
+          <th>Medián</th>
+          <th>P90</th>
+          <th>P95</th>
+          <th>Maximum</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of rows(); track row.label) {
+          <tr>
+            <th>{{ row.label }}</th>
+            <td>{{ row.distribution.count | number }}</td>
+            <td>{{ row.distribution.total | number }}</td>
+            <td>{{ row.distribution.minimum === null ? '—' : (row.distribution.minimum | number) }}</td>
+            <td>{{ row.distribution.average === null ? '—' : (row.distribution.average | number:'1.0-2') }}</td>
+            <td>{{ row.distribution.median === null ? '—' : (row.distribution.median | number:'1.0-2') }}</td>
+            <td>{{ row.distribution.percentile_90 === null ? '—' : (row.distribution.percentile_90 | number) }}</td>
+            <td>{{ row.distribution.percentile_95 === null ? '—' : (row.distribution.percentile_95 | number) }}</td>
+            <td>{{ row.distribution.maximum === null ? '—' : (row.distribution.maximum | number) }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+</section>

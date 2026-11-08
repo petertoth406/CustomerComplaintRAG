@@ -174,6 +174,35 @@ statisztikai, előfeldolgozási, embedding- és keresési végpontokhoz. Dockere
 indításkor a `http://localhost:4200` címen érhető el, és a kéréseket belső
 proxy továbbítja az API-szolgáltatásnak.
 
+A statisztikai végpont alapértelmezetten karakter- és szöveghossz-adatokat
+számít az aktuális `output/` tartalmából. A konfigurált tokenizerrel számított
+tokeneloszlás opcionálisan kérhető:
+
+```http
+GET /api/v1/statistics?include_tokens=true
+```
+
+A válasz az összes konfigurált chunkolási változat definícióját, továbbá
+teljes állományra és forrásoldalanként a chunkfájl állapotát, a lefedett és
+hiányzó dokumentumok számát, a chunkszámot és a chunkok eltárolt
+tokenhossz-eloszlását is tartalmazza. Konfigurációnként a dokumentumonkénti
+chunkszám eloszlása is elérhető a teljes korpuszra és oldalanként; ezt a
+rendszer a ténylegesen chunkolt dokumentumokon számítja, a chunk nélküli
+dokumentumokat pedig külön lefedettségi eltérésként jelzi. A chunkstatisztika
+nem tokenizálja újra a szövegeket: a JSONL chunkrekordok `token_count` mezőjét
+használja. Az összesítés az egy- és többchunkos dokumentumok számát, valamint a
+legtöbb chunkra bontott dokumentumokat is visszaadja. A tokenhossz és a
+dokumentumonkénti chunkszám hisztogramja teljes állományra és oldalanként is
+elérhető. A fix tokenes konfigurációkhoz kitöltöttségi és rövidchunk-mutatók,
+minden konfigurációhoz pedig egyedi, eltárolt és átfedés miatt ismétlődő
+tokenszám készül. Az oldalstatisztika az elavult, duplikált, árva vagy a
+konfigurációnak nem megfelelő chunkrekordokat külön ellenőrzési eltérésként
+jelzi. A
+konfiguráció összesített állapota `complete`, `partial`, `missing` vagy
+`invalid`. Az oldalankénti állapot ezen felül `unverifiable` is lehet, ha a
+chunkfájl érvényes, de a dokumentum-alapállomány hiánya vagy hibája miatt a
+lefedettség nem ellenőrizhető.
+
 ## Lokális fejlesztői környezet
 
 Python 3.12 vagy újabb verzióval, PowerShellben:

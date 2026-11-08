@@ -1,0 +1,568 @@
+<section class="stats-toolbar" aria-label="Chunkstatisztika frissítése">
+  <div>
+    <strong>Chunkolási módszerek elemzése</strong>
+    <span>A sikeresen chunkolt dokumentumok darabolási és tokenhossz-mutatói.</span>
+  </div>
+  <div class="stats-actions">
+    <button type="button" (click)="load()" [disabled]="loading()">
+      {{ loading() ? 'Betöltés…' : 'Frissítés' }}
+    </button>
+  </div>
+</section>
+
+@if (error(); as message) {
+  <div class="stats-alert error" role="alert">{{ message }}</div>
+}
+
+@if (loading() && !statistics()) {
+  <div class="stats-loading">A chunkstatisztikák betöltése folyamatban…</div>
+} @else if (statistics(); as data) {
+  <section class="stats-meta">
+    <span><strong>Adathalmaz:</strong> {{ data.dataset.dataset_id }}</span>
+    <span
+      ><strong>Generálva:</strong> {{ data.generated_at | date: 'yyyy. MM. dd. HH:mm:ss' }}</span
+    >
+    <span><strong>Sémaverzió:</strong> {{ data.statistics_schema_version }}</span>
+    <span class="stats-meta-note"
+      >A chunkszám-eloszlás csak a legalább egy chunkkal rendelkező dokumentumokon számolódik. A
+      hiányzó lefedettség a Feldolgozás nézetben látható.</span
+    >
+  </section>
+
+  <section class="chunk-config-grid" aria-label="Chunkolási konfigurációk">
+    @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+      @if (summaryFor(data, configuration.chunk_config_id); as summary) {
+        <button
+          type="button"
+          class="chunk-config-card"
+          [class.selected]="selectedConfigId() === configuration.chunk_config_id"
+          (click)="selectConfiguration(configuration.chunk_config_id)"
+        >
+          <span class="chunk-card-heading">
+            <strong>{{ configurationLabel(configuration) }}</strong>
+            <span>{{ summary.document_count | number }} dokumentum alapján</span>
+          </span>
+          <small>{{ configurationDescription(configuration) }}</small>
+          <span class="chunk-card-metrics">
+            <span
+              ><b>{{ summary.chunk_count | number }}</b> chunk</span
+            >
+            <span
+              ><b>{{ summary.chunks_per_document?.average ?? 0 | number: '1.0-2' }}</b> átlagos
+              chunk / dokumentum</span
+            >
+            <span
+              ><b>{{ multiChunkRate(summary) | number: '1.1-1' }}%</b> többchunkos dokumentum</span
+            >
+            <span
+              ><b>{{ summary.token_lengths.average ?? 0 | number: '1.0-2' }}</b> átlagos token /
+              chunk</span
+            >
+          </span>
+        </button>
+      }
+    }
+  </section>
+
+  <section class="stats-panel distribution-panel">
+    <div class="stats-panel-heading distribution-heading">
+      <div>
+        <p class="stats-eyebrow">Teljes eloszlás</p>
+        <h2>{{ distributionTitle() }}</h2>
+      </div>
+      <div class="distribution-controls">
+        <div class="scope-switch" role="group" aria-label="Eloszlás hatóköre">
+          <button
+            type="button"
+            [class.active]="distributionScope() === 'dataset'"
+            (click)="selectScope('dataset')"
+          >
+            Teljes állomány
+          </button>
+          <button
+            type="button"
+            [class.active]="distributionScope() === 'page'"
+            (click)="selectScope('page')"
+          >
+            Oldalanként
+          </button>
+        </div>
+        @if (distributionScope() === 'page') {
+          <label>
+            <span>Forrásoldal</span>
+            <select [ngModel]="selectedPageName()" (ngModelChange)="selectPage($event)">
+              @for (page of availablePages(); track page.page) {
+                <option [value]="page.page">{{ page.page }}</option>
+              }
+            </select>
+          </label>
+        }
+      </div>
+    </div>
+
+    @if (selectedDistribution(); as distribution) {
+      <div class="distribution-summary">
+        <article>
+          <span>Dokumentum</span><strong>{{ distribution.document_count | number }}</strong>
+        </article>
+        <article>
+          <span>Chunk</span><strong>{{ distribution.chunk_count | number }}</strong>
+        </article>
+        <article>
+          <span>Átlag chunk / dokumentum</span
+          ><strong>{{
+            distribution.chunks_per_document?.average === null ||
+            distribution.chunks_per_document?.average === undefined
+              ? '—'
+              : (distribution.chunks_per_document?.average | number: '1.0-2')
+          }}</strong>
+        </article>
+        <article>
+          <span>Átlag token / chunk</span
+          ><strong>{{
+            distribution.token_lengths.average === null
+              ? '—'
+              : (distribution.token_lengths.average | number: '1.0-2')
+          }}</strong>
+        </article>
+      </div>
+
+      <div class="chunk-quality-grid">
+        <article>
+          <span
+            >Átlagos kitöltöttség
+            <span class="info-tooltip" tabindex="0" aria-label="Az átlagos kitöltöttség jelentése"
+              >i<span class="info-tooltip-content" role="tooltip"
+                >A chunk tényleges tokenhosszának és a konfigurált maximális méretnek az aránya, az
+                összes chunkra átlagolva. Strukturális módszernél nincs tokenlimit, ezért nem
+                értelmezhető.</span
+              ></span
+            ></span
+          >
+          <strong>{{
+            distribution.quality.average_fill_percent === null
+              ? 'Nem értelmezhető'
+              : (distribution.quality.average_fill_percent | number: '1.0-2') + '%'
+          }}</strong>
+          <small>Csak fix tokenlimites módszernél</small>
+        </article>
+        <article>
+          <span
+            >Teljes méretű chunk
+            <span class="info-tooltip" tabindex="0" aria-label="A teljes méretű chunk jelentése"
+              >i<span class="info-tooltip-content" role="tooltip"
+                >Olyan chunk, amelynek tokenhossza pontosan eléri a konfigurált maximumot, például
+                az 500/100 módszernél az 500 tokent.</span
+              ></span
+            ></span
+          >
+          <strong>{{
+            distribution.quality.full_chunk_count === null
+              ? '—'
+              : (distribution.quality.full_chunk_count | number)
+          }}</strong>
+          <small>{{
+            distribution.quality.full_chunk_percent === null
+              ? '—'
+              : (distribution.quality.full_chunk_percent | number: '1.0-2') + '%'
+          }}</small>
+        </article>
+        <article>
+          <span
+            >25%-nál rövidebb chunk
+            <span class="info-tooltip" tabindex="0" aria-label="A rövid chunk jelentése"
+              >i<span class="info-tooltip-content" role="tooltip"
+                >Olyan chunk, amely a maximális méret negyedét sem éri el: 500 tokenes maximumnál
+                125, 1000 tokenes maximumnál 250 tokennél rövidebb.</span
+              ></span
+            ></span
+          >
+          <strong>{{
+            distribution.quality.short_chunk_count === null
+              ? '—'
+              : (distribution.quality.short_chunk_count | number)
+          }}</strong>
+          <small>{{
+            distribution.quality.short_chunk_percent === null
+              ? '—'
+              : (distribution.quality.short_chunk_percent | number: '1.0-2') + '%'
+          }}</small>
+        </article>
+        <article>
+          <span
+            >Átfedési többlet
+            <span class="info-tooltip" tabindex="0" aria-label="Az átfedési többlet jelentése"
+              >i<span class="info-tooltip-content" role="tooltip"
+                >Az átfedés miatt ismételten eltárolt tokenek aránya az egyedi tokentartalomhoz
+                képest. A nagyobb érték több embedding- és tárolási munkát jelent.</span
+              ></span
+            ></span
+          >
+          <strong>{{ distribution.quality.overlap_overhead_percent | number: '1.0-2' }}%</strong>
+          <small
+            >{{ distribution.quality.overlap_token_count | number }} ismételten tárolt token</small
+          >
+        </article>
+      </div>
+
+      <div class="histogram-grid">
+        <app-histogram-chart
+          title="Chunkok tokenhossz-eloszlása"
+          description="Az egyes tokenhossz-tartományokba eső chunkok darabszáma."
+          [buckets]="distribution.token_length_histogram"
+          unit="token"
+        />
+        <app-histogram-chart
+          title="Chunkszám dokumentumonként"
+          description="Hány dokumentumhoz tartozik pontosan az adott számú chunk."
+          [buckets]="distribution.chunks_per_document_histogram"
+          unit="chunk/dok."
+        />
+      </div>
+    } @else {
+      <div class="empty-table">A kiválasztott hatókörhöz nincs eloszlási adat.</div>
+    }
+  </section>
+
+  <section class="stats-panel">
+    <div class="stats-panel-heading">
+      <div>
+        <p class="stats-eyebrow">Összehasonlítás</p>
+        <h2>Dokumentumonkénti chunkszám</h2>
+      </div>
+      <span class="stats-note"
+        >Minden dokumentum egy megfigyelés; a chunk nélküli dokumentumok nem torzítják az
+        eloszlást.</span
+      >
+    </div>
+    <div class="stats-table-wrap">
+      <table class="stats-table chunk-comparison-table">
+        <thead>
+          <tr>
+            <th>Mérőszám</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              <th>{{ configurationLabel(configuration) }}</th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th>Chunkolt dokumentum</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>{{ value.document_count | number }}</td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>Chunkok száma</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>{{ value.chunk_count | number }}</td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>Minimum</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>{{ value.chunks_per_document?.minimum ?? '—' }}</td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>Átlag</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>
+                  {{
+                    value.chunks_per_document?.average === null ||
+                    value.chunks_per_document?.average === undefined
+                      ? '—'
+                      : (value.chunks_per_document?.average | number: '1.0-2')
+                  }}
+                </td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>Medián</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>{{ value.chunks_per_document?.median ?? '—' }}</td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>P90 / P95</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>
+                  {{ value.chunks_per_document?.percentile_90 ?? '—' }} /
+                  {{ value.chunks_per_document?.percentile_95 ?? '—' }}
+                </td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>Maximum</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>{{ value.chunks_per_document?.maximum ?? '—' }}</td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>Egychunkos dokumentum</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>
+                  {{ value.single_chunk_document_count | number }} ·
+                  {{ singleChunkRate(value) | number: '1.1-1' }}%
+                </td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>Többchunkos dokumentum</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>
+                  {{ value.multi_chunk_document_count | number }} ·
+                  {{ multiChunkRate(value) | number: '1.1-1' }}%
+                </td>
+              }
+            }
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="stats-panel">
+    <div class="stats-panel-heading">
+      <div>
+        <p class="stats-eyebrow">Chunkméret</p>
+        <h2>Tokenhossz konfigurációnként</h2>
+      </div>
+      <span class="stats-note"
+        >A mentett chunkrekordok <code>token_count</code> mezőiből, újratokenizálás nélkül.</span
+      >
+    </div>
+    <div class="stats-table-wrap">
+      <table class="stats-table chunk-comparison-table">
+        <thead>
+          <tr>
+            <th>Mérőszám</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              <th>{{ configurationLabel(configuration) }}</th>
+            }
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th>Minimum token</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>{{ value.token_lengths.minimum ?? '—' }}</td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>Átlagos tokenhossz</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>
+                  {{
+                    value.token_lengths.average === null
+                      ? '—'
+                      : (value.token_lengths.average | number: '1.0-2')
+                  }}
+                </td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>Medián tokenhossz</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>
+                  {{
+                    value.token_lengths.median === null
+                      ? '—'
+                      : (value.token_lengths.median | number: '1.0-2')
+                  }}
+                </td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>P90 / P95 token</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>
+                  {{ value.token_lengths.percentile_90 ?? '—' }} /
+                  {{ value.token_lengths.percentile_95 ?? '—' }}
+                </td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>Maximális tokenhossz</th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>{{ value.token_lengths.maximum ?? '—' }}</td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>
+              Átlagos kitöltöttség
+              <span class="info-tooltip" tabindex="0" aria-label="Az átlagos kitöltöttség jelentése"
+                >i<span class="info-tooltip-content" role="tooltip"
+                  >A tényleges és maximális chunkméret aránya, az összes chunkra átlagolva.</span
+                ></span
+              >
+            </th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>
+                  {{
+                    value.quality.average_fill_percent === null
+                      ? '—'
+                      : (value.quality.average_fill_percent | number: '1.0-2') + '%'
+                  }}
+                </td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>
+              Teljes méretű chunk
+              <span class="info-tooltip" tabindex="0" aria-label="A teljes méretű chunk jelentése"
+                >i<span class="info-tooltip-content" role="tooltip"
+                  >A konfigurált maximális tokenhosszt pontosan elérő chunkok száma és aránya.</span
+                ></span
+              >
+            </th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>
+                  {{
+                    value.quality.full_chunk_count === null
+                      ? '—'
+                      : (value.quality.full_chunk_count | number)
+                  }}
+                  ·
+                  {{
+                    value.quality.full_chunk_percent === null
+                      ? '—'
+                      : (value.quality.full_chunk_percent | number: '1.0-2') + '%'
+                  }}
+                </td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>
+              25%-nál rövidebb chunk
+              <span class="info-tooltip" tabindex="0" aria-label="A rövid chunk jelentése"
+                >i<span class="info-tooltip-content" role="tooltip"
+                  >A maximális tokenméret negyedénél rövidebb chunkok száma és aránya.</span
+                ></span
+              >
+            </th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>
+                  {{
+                    value.quality.short_chunk_count === null
+                      ? '—'
+                      : (value.quality.short_chunk_count | number)
+                  }}
+                  ·
+                  {{
+                    value.quality.short_chunk_percent === null
+                      ? '—'
+                      : (value.quality.short_chunk_percent | number: '1.0-2') + '%'
+                  }}
+                </td>
+              }
+            }
+          </tr>
+          <tr>
+            <th>
+              Átfedési többlet
+              <span class="info-tooltip" tabindex="0" aria-label="Az átfedési többlet jelentése"
+                >i<span class="info-tooltip-content" role="tooltip"
+                  >Az ismételten tárolt tokenek száma és aránya az egyedi tokentartalomhoz
+                  képest.</span
+                ></span
+              >
+            </th>
+            @for (configuration of data.chunk_configurations; track configuration.chunk_config_id) {
+              @if (summaryFor(data, configuration.chunk_config_id); as value) {
+                <td>
+                  {{ value.quality.overlap_token_count | number }} token ·
+                  {{ value.quality.overlap_overhead_percent | number: '1.0-2' }}%
+                </td>
+              }
+            }
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  @if (selectedSummary(); as summary) {
+    @if (selectedConfiguration(); as configuration) {
+      <section class="stats-panel">
+        <div class="stats-panel-heading">
+          <div>
+            <p class="stats-eyebrow">Outlierek</p>
+            <h2>Legtöbb chunkra bontott dokumentumok — {{ configurationLabel(configuration) }}</h2>
+          </div>
+          <span class="stats-note"
+            >A lista chunkszám, majd összes chunk-token szerint csökkenő.</span
+          >
+        </div>
+        <div class="stats-table-wrap">
+          <table class="stats-table">
+            <thead>
+              <tr>
+                <th>Dokumentum</th>
+                <th>Forrásoldal</th>
+                <th>Chunk</th>
+                <th>Chunk-token összesen</th>
+                <th>Forrás</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (outlier of summary.outlier_documents ?? []; track outlier.document_id) {
+                <tr>
+                  <th>
+                    <code>{{ outlier.document_id }}</code>
+                  </th>
+                  <td>{{ outlier.source_page }}</td>
+                  <td>{{ outlier.chunk_count | number }}</td>
+                  <td>{{ outlier.total_token_count | number }}</td>
+                  <td>
+                    <a [href]="outlier.source_url" target="_blank" rel="noopener noreferrer"
+                      >Megnyitás ↗</a
+                    >
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td class="empty-table" colspan="5">
+                    Ehhez a konfigurációhoz nincs több chunkra bontott dokumentum.
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    }
+  }
+}

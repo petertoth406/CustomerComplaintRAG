@@ -1,10 +1,14 @@
-config
+/config/*
+!/config/chunking/
+/config/chunking/*
+!/config/chunking/*.yaml
 /output/
 /output_*/
 .venv
 __pycache__/
 *.pyc
 .env
+/planning/
 
 .vscode/*
 #!.vscode/launch.json

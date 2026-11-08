@@ -67,6 +67,12 @@ h2 {
   font-size: 1.5rem;
 }
 
+h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1.25rem;
+}
+
 .hint {
   max-width: 38rem;
   margin: 0;
@@ -87,6 +93,40 @@ h2 {
   border: 1px solid #dfe3e8;
   border-radius: 0.75rem;
   background: #ffffff;
+}
+
+.full-pipeline-card {
+  margin-bottom: 1rem;
+  border-color: #93c5fd;
+  background: linear-gradient(135deg, #ffffff 0%, #eff6ff 100%);
+}
+
+.pipeline-copy {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(17rem, 0.8fr);
+  gap: 2rem;
+  align-items: start;
+}
+
+.pipeline-copy fieldset {
+  margin: 0;
+  background: rgb(255 255 255 / 75%);
+}
+
+.primary-action {
+  margin-top: 1rem;
+  background: #1d4ed8;
+}
+
+.primary-action:hover:not(:disabled) {
+  background: #1e40af;
+}
+
+.selection-summary {
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+  font-size: 0.8125rem;
 }
 
 .card p {
@@ -280,7 +320,8 @@ pre {
   }
 
   .card-grid,
-  .parameters {
+  .parameters,
+  .pipeline-copy {
     grid-template-columns: 1fr;
   }
 
