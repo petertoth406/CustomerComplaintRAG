@@ -95,15 +95,13 @@ class StatisticsService:
             page_chunk_statistics: list[PageChunkStatistics] = []
             for config in chunk_configs:
                 chunks_snapshot = self.repository.read_chunks(page, config.id)
-                if chunks_snapshot.status == "available":
-                    all_chunks_by_config[config.id].extend(chunks_snapshot.chunks)
-                page_chunk_statistics.append(
-                    self._build_page_chunk_statistics(
-                        documents_snapshot,
-                        chunks_snapshot,
-                        config,
-                    )
+                statistics, accepted_chunks = self._build_page_chunk_statistics(
+                    documents_snapshot,
+                    chunks_snapshot,
+                    config,
                 )
+                page_chunk_statistics.append(statistics)
+                all_chunks_by_config[config.id].extend(accepted_chunks)
 
             page_statistics.append(
                 PageStatistics(
@@ -184,18 +182,10 @@ class StatisticsService:
         documents_snapshot: DocumentsSnapshot,
         chunks_snapshot: ChunksSnapshot,
         config: ChunkConfig,
-    ) -> PageChunkStatistics:
-        chunks = chunks_snapshot.chunks
-        covered_document_ids = {chunk.document_id for chunk in chunks}
-        chunks_by_document = Counter(chunk.document_id for chunk in chunks)
+    ) -> tuple[PageChunkStatistics, tuple[ChunkRecord, ...]]:
         expected_document_ids = (
             {document.document_id for document in documents_snapshot.documents}
             if documents_snapshot.status in {"processed", "processed_empty"}
-            else None
-        )
-        missing_document_count = (
-            len(expected_document_ids - covered_document_ids)
-            if expected_document_ids is not None
             else None
         )
         validation_issues = [
@@ -213,7 +203,7 @@ class StatisticsService:
         if chunks_snapshot.status == "available":
             validation_issues.extend(
                 cls._validate_chunk_semantics(
-                    chunks,
+                    chunks_snapshot.chunks,
                     expected_document_ids,
                     config,
                 )
@@ -232,15 +222,24 @@ class StatisticsService:
                 )
             )
 
-        has_validation_error = any(
+        is_invalid = chunks_snapshot.status == "invalid" or any(
             issue.severity == "error" for issue in validation_issues
+        )
+        chunks = (
+            chunks_snapshot.chunks
+            if chunks_snapshot.status == "available" and not is_invalid
+            else ()
+        )
+        chunks_by_document = Counter(chunk.document_id for chunk in chunks)
+        missing_document_count = (
+            len(expected_document_ids - chunks_by_document.keys())
+            if expected_document_ids is not None
+            else None
         )
         if chunks_snapshot.status == "missing":
             status = "missing"
-        elif chunks_snapshot.status == "invalid" or has_validation_error:
-            status = chunks_snapshot.status
-            if status != "invalid":
-                status = "invalid"
+        elif is_invalid:
+            status = "invalid"
         elif expected_document_ids is None:
             status = "unverifiable"
         elif missing_document_count:
@@ -248,10 +247,10 @@ class StatisticsService:
         else:
             status = "complete"
 
-        return PageChunkStatistics(
+        statistics = PageChunkStatistics(
             chunk_config_id=config.id,
             status=status,
-            document_count=len(covered_document_ids),
+            document_count=len(chunks_by_document),
             chunk_count=len(chunks),
             missing_document_count=missing_document_count,
             chunks_per_document=(
@@ -274,6 +273,7 @@ class StatisticsService:
             freshness_status=freshness_status,
             validation_issues=validation_issues,
         )
+        return statistics, chunks
 
     @staticmethod
     def _count_content(

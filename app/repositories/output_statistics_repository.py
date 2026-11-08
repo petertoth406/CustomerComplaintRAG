@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
 from typing import Literal
@@ -15,6 +16,16 @@ from app.schemas.chunking import ChunkRecord
 
 
 SOURCE_PAGE_DIRECTORY_PATTERN = re.compile(r"^levelek(?P<page_id>[1-9]\d*)?$")
+
+
+def _read_lines_with_modified_at(path: Path) -> tuple[list[str], datetime]:
+    with path.open(encoding="utf-8") as file:
+        lines = file.read().splitlines()
+        modified_at = datetime.fromtimestamp(
+            os.fstat(file.fileno()).st_mtime,
+            tz=timezone.utc,
+        )
+    return lines, modified_at
 
 
 @dataclass(frozen=True)
@@ -128,11 +139,11 @@ class OutputStatisticsRepository:
 
     def read_documents(self, page: DiscoveredSourcePage) -> DocumentsSnapshot:
         documents_path = self.output_dir / page.name / "documents.jsonl"
-        if not documents_path.is_file():
-            return DocumentsSnapshot(status="not_processed")
 
         try:
-            lines = documents_path.read_text(encoding="utf-8").splitlines()
+            if not documents_path.is_file():
+                return DocumentsSnapshot(status="not_processed")
+            lines, modified_at = _read_lines_with_modified_at(documents_path)
             documents = tuple(
                 CanonicalDocumentRecord.model_validate(json.loads(line))
                 for line in lines
@@ -150,35 +161,31 @@ class OutputStatisticsRepository:
         return DocumentsSnapshot(
             status="processed" if documents else "processed_empty",
             documents=documents,
-            modified_at=datetime.fromtimestamp(
-                documents_path.stat().st_mtime,
-                tz=timezone.utc,
-            ),
+            modified_at=modified_at,
         )
 
     def read_chunks(self, page: DiscoveredSourcePage, chunk_config_id: str) -> ChunksSnapshot:
-        chunks_path = (self.output_dir / page.name / "chunks" / f"{chunk_config_id}.jsonl")
-        
-        if not chunks_path.is_file():
-            return ChunksSnapshot(
-                status="missing",
-                issues=(
-                    ChunkSnapshotIssue(
-                        code="missing_file",
-                        message="A konfigurációhoz tartozó chunkfájl nem található.",
-                    ),
-                ),
-            )
+        chunks_path = self.output_dir / page.name / "chunks" / f"{chunk_config_id}.jsonl"
 
         try:
-            lines = chunks_path.read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeError) as error:
+            if not chunks_path.is_file():
+                return ChunksSnapshot(
+                    status="missing",
+                    issues=(
+                        ChunkSnapshotIssue(
+                            code="missing_file",
+                            message="A konfigurációhoz tartozó chunkfájl nem található.",
+                        ),
+                    ),
+                )
+            lines, modified_at = _read_lines_with_modified_at(chunks_path)
+        except (OSError, UnicodeError):
             return ChunksSnapshot(
                 status="invalid",
                 issues=(
                     ChunkSnapshotIssue(
                         code="unreadable_file",
-                        message=f"A chunkfájl nem olvasható: {error}",
+                        message="A chunkfájl nem olvasható.",
                     ),
                 ),
             )
@@ -191,18 +198,14 @@ class OutputStatisticsRepository:
                 parsed_chunks.append(
                     ChunkRecord.model_validate(json.loads(line))
                 )
-            except (json.JSONDecodeError, TypeError, ValidationError) as error:
+            except (json.JSONDecodeError, TypeError, ValidationError):
                 return ChunksSnapshot(
                     status="invalid",
-                    chunks=tuple(parsed_chunks),
-                    modified_at=datetime.fromtimestamp(
-                        chunks_path.stat().st_mtime,
-                        tz=timezone.utc,
-                    ),
+                    modified_at=modified_at,
                     issues=(
                         ChunkSnapshotIssue(
                             code="invalid_record",
-                            message=f"A(z) {line_number}. chunkrekord érvénytelen: {error}",
+                            message=f"A(z) {line_number}. chunkrekord érvénytelen.",
                             line_number=line_number,
                         ),
                     ),
@@ -215,7 +218,6 @@ class OutputStatisticsRepository:
         if mismatched_config_count:
             return ChunksSnapshot(
                 status="invalid",
-                chunks=chunks,
                 issues=(
                     ChunkSnapshotIssue(
                         code="configuration_mismatch",
@@ -231,7 +233,6 @@ class OutputStatisticsRepository:
         if mismatched_page_count:
             return ChunksSnapshot(
                 status="invalid",
-                chunks=chunks,
                 issues=(
                     ChunkSnapshotIssue(
                         code="source_page_mismatch",
@@ -247,7 +248,6 @@ class OutputStatisticsRepository:
         if duplicate_chunk_count:
             return ChunksSnapshot(
                 status="invalid",
-                chunks=chunks,
                 issues=(
                     ChunkSnapshotIssue(
                         code="duplicate_chunk_id",
@@ -260,8 +260,5 @@ class OutputStatisticsRepository:
         return ChunksSnapshot(
             status="available",
             chunks=chunks,
-            modified_at=datetime.fromtimestamp(
-                chunks_path.stat().st_mtime,
-                tz=timezone.utc,
-            ),
+            modified_at=modified_at,
         )
