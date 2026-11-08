@@ -8,6 +8,7 @@ from app.api.dependencies import get_semantic_service
 from app.clients.source_client import SourceDownloadError
 from app.core.config import DEV_MODE
 from app.schemas.preprocessing import (
+    AnswersResponse,
     DownloadRequest,
     DownloadResponse,
     DownloadResult,
@@ -134,6 +135,35 @@ def run_pipeline(request: RunRequest, service: Service) -> RunResponse:
     return RunResponse(timestamp=timestamp, results=results)
 
 
+@router.post("/answers", response_model=AnswersResponse)
+def process_answers(request: RunRequest, service: Service) -> AnswersResponse:
+    timestamp = service.create_timestamp() if request.timestamp else None
+    output_root = f"output_{timestamp}" if timestamp else "output"
+    results: list[ProcessResult] = []
+    try:
+        for page in request.source_pages():
+            document_count = service.process_answers(page, timestamp=timestamp)
+            results.append(
+                ProcessResult(
+                    page=page.name,
+                    output_directory=f"{output_root}/{page.name}",
+                    document_count=document_count,
+                    documents_jsonl=f"{output_root}/{page.name}/documents.jsonl",
+                )
+            )
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"A mentett documents.jsonl fájl nem található: {page.name}",
+        ) from error
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(error),
+        ) from error
+    return AnswersResponse(timestamp=timestamp, results=results)
+
+
 @router.post("/embeddings", response_model=EmbeddingResponse)
 def create_embeddings(
     request: EmbeddingRequest,
@@ -143,6 +173,7 @@ def create_embeddings(
         summaries = service.embed_pages(
             request.source_pages(),
             request.chunk_config_ids,
+            reuse_existing=request.reuse_existing,
         )
     except FileNotFoundError as error:
         raise HTTPException(
@@ -165,4 +196,5 @@ def create_embeddings(
         results=results,
         embedded_count=sum(result.embedded_count for result in results),
         skipped_count=sum(result.skipped_count for result in results),
+        reused_count=sum(result.reused_count for result in results),
     )

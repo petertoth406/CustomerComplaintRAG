@@ -70,6 +70,22 @@ class ChromaRepository:
             raise SemanticBackendError(f"A ChromaDB olvasás sikertelen: {error}") from error
         return list(stored.get("ids", []))
 
+    def stored_records_for_page(self, page: str) -> dict[str, VectorRecord]:
+        try:
+            stored = self.collection.get(
+                where={"page": page},
+                include=["documents", "metadatas"],
+            )
+            return {
+                record_id: VectorRecord(record_id, document or "", metadata or {})
+                for record_id, document, metadata in zip(
+                    stored["ids"], stored["documents"] or [], stored["metadatas"] or [],
+                    strict=True,
+                )
+            }
+        except Exception as error:
+            raise SemanticBackendError(f"A ChromaDB olvasás sikertelen: {error}") from error
+
     def delete(self, record_ids: list[str]) -> None:
         if not record_ids:
             return

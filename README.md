@@ -63,6 +63,20 @@ sima `output/` tartalmából dolgozhat.
 A `/run` oldalanként egy `source.json` metaadatfájlt és egy kanonikus
 dokumentumokat tartalmazó `documents.jsonl` fájlt hoz létre.
 
+A kanonikus rekord `answer_status` mezője `answered`, ha van tényleges
+válaszszöveg, `unanswered`, ha válaszlink sincs, és `unresolved_reference`,
+ha csak feloldatlan válaszlink van. A panaszt nem tartalmazó rekordnál az
+érték `null`. A céges válasz külön `answer` üzenet, `inline` vagy `linked`
+eredettel az `answer_source` mezőben és forráscímmel a `url` mezőben.
+Az `answer_reference` üzenet megőrzi a linket és a feloldás állapotát.
+Sikertelenség esetén a `resolution_error` tartalmazza az okot.
+
+A feldolgozás az 50 karakternél rövidebb panasz- és válaszüzeneteket kihagyja.
+A hossz mérése előtt a szóközöket normalizálja. Az oldal feldolgozott
+kimenetébe legalább egy megfelelő hosszúságú panaszt tartalmazó rekordok
+kerülnek. A rövid válasz mellett is feloldja a válaszlinket. Ha a céloldalról
+is csak rövid válasz nyerhető ki, az ok `answer_too_short`.
+
 Az embedding végpont a kiválasztott chunkkonfigurációkhoz külön JSONL-fájlokat
 hoz létre az `output/levelekN/chunks/` könyvtárban, és konfigurációnként külön
 ChromaDB collectiont tölt fel.
@@ -130,6 +144,23 @@ Content-Type: application/json
 A külön `/download` és `/process` végpont kizárólag `DEV_MODE=true` esetén
 regisztrálódik, és ilyenkor hibakereséshez `raw.html`-t is használhat.
 
+A `/run` és a `/process` feldolgozás közben oldja fel a válaszlinkeket.
+A már mentett kanonikus rekordok válaszlinkjei önállóan is feloldhatók.
+
+```http
+POST /api/v1/preprocessing/answers
+Content-Type: application/json
+
+{"page_id": 34, "timestamp": true}
+```
+
+Ez a végpont az `output/levelekN/documents.jsonl` fájlból olvas, és csak a
+feloldásra váró válaszoldalakat tölti le. A `timestamp: true` külön
+`output_<timestamp>/` könyvtárba ír, nélküle az eredeti JSONL-t frissíti.
+A PDF-linkek `unsupported_format` okkal maradnak feloldatlanok. A régi
+JSONL-ekből kimaradt linkek és panaszszövegek visszanyeréséhez a `/run`
+újraolvassa az eredeti HTML-t.
+
 A feldolgozott oldal kanonikus dokumentumainak embeddingelése mindig a sima `output/`
 könyvtárból történik. Egy oldal embeddingelése:
 
@@ -151,6 +182,15 @@ Oldaltartományhoz `start_page` és `end_page` is megadható. Egyetlen módszerh
 csak annak konfigurációazonosítóját kell elküldeni. A rendszer a kiválasztott
 konfigurációk chunkjait stabil `chunk_id` azonosítókkal tölti a megfelelő
 ChromaDB collectionbe, ezért az ismételt futtatás nem duplikál.
+
+A `/answers` normál kimenetének frissítése után ugyanazokkal az
+oldalparaméterekkel az embeddingkéréshez `"reuse_existing": true` adható.
+Ez a mód a chunkolás után összeveti az azonosítót, szöveget és metaadatokat
+a ChromaDB-ben tárolt rekordokkal. Csak az új vagy módosult chunkokhoz kér
+embeddinget. Az `embedded_count` az újonnan embeddingelt, a `reused_count`
+az újrahasznált chunkok száma. Az újrahasználat ugyanazzal az embeddingmodellel
+készült indexhez használható. Modellváltáskor a teljes újraindexeléshez
+`reuse_existing` értéke maradjon `false`.
 
 A szemantikus keresés fixen legfeljebb öt chunkot ad vissza:
 

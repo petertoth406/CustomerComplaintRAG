@@ -81,6 +81,10 @@ class ProcessResponse(BaseModel):
     results: list[ProcessResult]
 
 
+class AnswersResponse(ProcessResponse):
+    timestamp: str | None
+
+
 class RunResponse(BaseModel):
     timestamp: str | None
     results: list[RunResult]

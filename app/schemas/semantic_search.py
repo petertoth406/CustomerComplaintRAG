@@ -11,6 +11,10 @@ class EmbeddingRequest(PageSelection):
         default_factory=lambda: [DEFAULT_CHUNK_CONFIG_ID],
         min_length=1,
     )
+    reuse_existing: bool = Field(
+        default=False,
+        description="Azonos embeddingmodell esetén a változatlan chunkok vektorainak újrahasználata.",
+    )
 
 
 class EmbeddingResult(BaseModel):
@@ -21,12 +25,14 @@ class EmbeddingResult(BaseModel):
     chunks_jsonl: str
     embedded_count: int
     skipped_count: int
+    reused_count: int = 0
 
 
 class EmbeddingResponse(BaseModel):
     results: list[EmbeddingResult]
     embedded_count: int
     skipped_count: int
+    reused_count: int = 0
 
 
 class SearchRequest(BaseModel):

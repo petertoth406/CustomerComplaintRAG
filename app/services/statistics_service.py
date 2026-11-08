@@ -288,14 +288,17 @@ class StatisticsService:
         for document in documents:
             message_types = [message.type for message in document.messages]
             complaint_messages = message_types.count("complaint")
-            inline_answers = message_types.count("answer")
+            inline_answers = sum(
+                message.type == "answer" and message.answer_source != "linked"
+                for message in document.messages
+            )
             external_answers = message_types.count("answer_reference")
 
             complaint_document_count += complaint_messages > 0
             complaint_message_count += complaint_messages
             inline_answer_count += inline_answers
             external_answer_reference_count += external_answers
-            answered_document_count += inline_answers + external_answers > 0
+            answered_document_count += document.answer_status == "answered"
 
         return ContentCounts(
             document_count=len(documents),
@@ -327,7 +330,7 @@ class StatisticsService:
             message.text
             for document in documents
             for message in document.messages
-            if message.type == "answer"
+            if message.type == "answer" and message.answer_source != "linked"
         ]
         return ContentLengthStatistics(
             documents=cls._calculate_text_lengths(

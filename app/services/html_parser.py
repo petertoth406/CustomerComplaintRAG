@@ -2,17 +2,19 @@
 
 import codecs
 import re
+from dataclasses import replace
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
 from app.core.config import CANONICAL_DOCUMENT_SCHEMA_VERSION
-from app.models.document import CanonicalDocument, Message
+from app.models.document import CanonicalDocument, Message, join_message_text
 from app.models.source_page import SourcePage
 
 
 HR_PATTERN = re.compile(r"<hr\b[^>]*>", re.IGNORECASE)
 CHARSET_PATTERN = re.compile(rb"charset\s*=\s*[\"']?\s*([a-zA-Z0-9._-]+)", re.IGNORECASE)
+ANSWER_LINK_LABEL = re.compile(r"\bválasz(?:a|ai|ára|levél\w*|\s+levél)?\b", re.IGNORECASE)
 
 
 def is_known_encoding(name: str) -> bool:
@@ -99,42 +101,31 @@ def parse_html(content: bytes, content_type: str, page: SourcePage) -> list[Cano
 
         for element in fragment_soup.find_all(["h2", "h6"]):
             own_element = message_element_without_nested_messages(element)
+            references: list[Message] = []
+            for anchor in own_element.find_all("a", href=True):
+                label = " ".join(anchor.get_text(" ", strip=True).split())
+                href = anchor["href"].strip()
+                if not ANSWER_LINK_LABEL.search(label):
+                    continue
+                try:
+                    url = urljoin(page.url, href) if href else None
+                except ValueError:
+                    url = href
+                references.append(Message(type="answer_reference", text=label, url=url))
+                anchor.decompose()
             element_text = extract_clean_text(own_element)
-            if not element_text:
-                continue
+            if element_text:
+                message_type = "answer" if element.name == "h6" else "complaint"
+                if messages and messages[-1].type == message_type:
+                    previous = messages[-1]
+                    messages[-1] = replace(previous, text=previous.text + "\n" + element_text)
+                elif message_type == "answer":
+                    messages.append(Message(type="answer", text=element_text, url=page.url, answer_source="inline"))
+                else:
+                    messages.append(Message(type="complaint", text=element_text))
+            messages.extend(references)
 
-            answer_link = next(
-                (
-                    anchor for anchor in own_element.find_all("a", href=True)
-                    if "válasza" in anchor.get_text(" ", strip=True).casefold()
-                ),
-                None,
-            )
-            if element.name == "h2" and answer_link is not None:
-                messages.append(
-                    Message(
-                        type="answer_reference",
-                        text=answer_link.get_text(" ", strip=True),
-                        url=urljoin(page.url, answer_link["href"]),
-                    )
-                )
-                continue
-
-            message_type = "answer" if element.name == "h6" else "complaint"
-            if messages and messages[-1].type == message_type:
-                previous = messages[-1]
-                messages[-1] = Message(
-                    type=previous.type,
-                    text=previous.text + "\n" + element_text,
-                )
-            else:
-                messages.append(Message(type=message_type, text=element_text))
-
-        text = "\n\n".join(
-            message.text
-            for message in messages
-            if message.type != "answer_reference"
-        )
+        text = join_message_text(messages)
         if not text.strip():
             continue
         documents.append(

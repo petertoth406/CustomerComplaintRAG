@@ -6,18 +6,28 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
+from tempfile import NamedTemporaryFile
+from threading import Lock
 
 from app.core.config import OUTPUT_DIR
 from app.models.chunk import Chunk
-from app.models.document import CanonicalDocument
+from app.models.document import CanonicalDocument, Message
 from app.models.source_page import DownloadedPage, SourcePage
 from app.schemas.canonical_document import CanonicalDocumentRecord
 from app.schemas.chunking import ChunkRecord
 
 
 class FileRepository:
+    _locks_guard = Lock()
+    _page_locks = {}
+
     def __init__(self, output_dir: Path = OUTPUT_DIR) -> None:
         self.output_dir = output_dir
+
+    def page_lock(self, page: SourcePage):
+        key = self.page_dir(page).resolve()
+        with self._locks_guard:
+            return self._page_locks.setdefault(key, Lock())
 
     def page_dir(self, page: SourcePage, *, timestamp: str | None = None) -> Path:
         output_dir = (
@@ -75,8 +85,20 @@ class FileRepository:
         return DownloadedPage(content=content, content_type=content_type)
 
     def load_documents(self, page: SourcePage) -> list[dict]:
+        return [record.model_dump(mode="json") for record in self._load_document_records(page)]
+
+    def load_document_models(self, page: SourcePage) -> list[CanonicalDocument]:
+        return [
+            CanonicalDocument(
+                **record.model_dump(exclude={"messages", "answer_status"}),
+                messages=[Message(**message.model_dump()) for message in record.messages],
+            )
+            for record in self._load_document_records(page)
+        ]
+
+    def _load_document_records(self, page: SourcePage) -> list[CanonicalDocumentRecord]:
         documents_path = self.page_dir(page) / "documents.jsonl"
-        documents: list[dict] = []
+        documents: list[CanonicalDocumentRecord] = []
         for line_number, line in enumerate(
             documents_path.read_text(encoding="utf-8").splitlines(),
             start=1,
@@ -88,9 +110,15 @@ class FileRepository:
                 raise ValueError(
                     f"A {documents_path} {line_number}. sora nem JSON objektum."
                 )
-            validated_document = CanonicalDocumentRecord.model_validate(document)
-            documents.append(validated_document.model_dump(mode="json"))
+            documents.append(CanonicalDocumentRecord.model_validate(document))
         return documents
+
+    def copy_source_metadata(self, page: SourcePage, *, timestamp: str) -> None:
+        source = self.page_dir(page) / "source.json"
+        if source.is_file():
+            destination = self.page_dir(page, timestamp=timestamp) / "source.json"
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination)
 
     def save_documents(self, page: SourcePage, documents: list[CanonicalDocument], *, timestamp: str | None = None) -> Path:
         page_dir = self.page_dir(page, timestamp=timestamp)
@@ -111,7 +139,17 @@ class FileRepository:
         content = "\n".join(serialized_documents)
         if content:
             content += "\n"
-        documents_path.write_text(content, encoding="utf-8")
+        with NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=page_dir, delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            try:
+                temporary.write(content)
+                temporary.close()
+                temporary_path.replace(documents_path)
+            finally:
+                temporary.close()
+                temporary_path.unlink(missing_ok=True)
         return documents_path
 
     def save_chunks(self, page: SourcePage, chunk_config_id: str, chunks: list[Chunk]) -> Path:

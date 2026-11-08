@@ -25,6 +25,7 @@ class EmbeddingSummary:
     chunks_jsonl: str
     embedded_count: int
     skipped_count: int
+    reused_count: int = 0
 
 
 class SemanticSearchService:
@@ -48,10 +49,12 @@ class SemanticSearchService:
         self,
         pages: list[SourcePage],
         chunk_config_ids: list[str] | None = None,
+        *,
+        reuse_existing: bool = False,
     ) -> list[EmbeddingSummary]:
         configs = self.chunk_config_registry.resolve(chunk_config_ids)
         return [
-            self.embed_page(page, config)
+            self.embed_page(page, config, reuse_existing=reuse_existing)
             for page in pages
             for config in configs
         ]
@@ -60,6 +63,18 @@ class SemanticSearchService:
         self,
         page: SourcePage,
         config: ChunkConfig,
+        *,
+        reuse_existing: bool = False,
+    ) -> EmbeddingSummary:
+        with self.file_repository.page_lock(page):
+            return self._embed_page(page, config, reuse_existing=reuse_existing)
+
+    def _embed_page(
+        self,
+        page: SourcePage,
+        config: ChunkConfig,
+        *,
+        reuse_existing: bool,
     ) -> EmbeddingSummary:
         documents = self.file_repository.load_documents(page)
         chunks = self.chunking_service.chunk_documents(documents, config)
@@ -91,19 +106,20 @@ class SemanticSearchService:
                 )
             )
 
-        current_ids = {record.record_id for record in records}
-        for start in range(0, len(records), EMBEDDING_BATCH_SIZE):
-            batch = records[start : start + EMBEDDING_BATCH_SIZE]
+        stored = vector_store.stored_records_for_page(page.name) if reuse_existing else None
+        pending = records if stored is None else [
+            record for record in records if stored.get(record.record_id) != record
+        ]
+        for start in range(0, len(pending), EMBEDDING_BATCH_SIZE):
+            batch = pending[start : start + EMBEDDING_BATCH_SIZE]
             embeddings = self.embedding_service.embed(
                 [record.document for record in batch]
             )
             vector_store.upsert(batch, embeddings)
 
-        stale_ids = [
-            stored_id
-            for stored_id in vector_store.stored_ids_for_page(page.name)
-            if stored_id not in current_ids
-        ]
+        current_ids = {record.record_id for record in records}
+        stored_ids = vector_store.stored_ids_for_page(page.name) if stored is None else stored
+        stale_ids = [stored_id for stored_id in stored_ids if stored_id not in current_ids]
         vector_store.delete(stale_ids)
 
         chunked_document_ids = {chunk.document_id for chunk in chunks}
@@ -113,7 +129,8 @@ class SemanticSearchService:
             chunk_config_id=config.id,
             collection_name=config.collection_name,
             chunks_jsonl=f"output/{page.name}/chunks/{config.id}.jsonl",
-            embedded_count=len(records),
+            embedded_count=len(pending),
+            reused_count=len(records) - len(pending),
             skipped_count=sum(
                 str(document["document_id"]) not in chunked_document_ids
                 for document in documents
